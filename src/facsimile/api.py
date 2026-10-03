@@ -9,6 +9,14 @@ from pydantic import BaseModel, Field, model_validator
 
 from .breakout import WeeklyBreakoutEngine
 from .contracts import ScanEnvelope, weekly_breakout_envelope
+from .live_data import (
+    LiveNewsItem,
+    LiveProfile,
+    LiveScanRequest,
+    LiveScanResponse,
+    ProviderStatus,
+    get_live_data_service,
+)
 from .models import (
     BreakoutCandidate,
     BreakoutConfig,
@@ -176,6 +184,40 @@ def _filter_market_universe(
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "service": "facsimile"}
+
+
+@app.get(
+    "/v1/live/providers",
+    response_model=list[ProviderStatus],
+)
+def live_provider_status() -> list[ProviderStatus]:
+    return get_live_data_service().provider_status()
+
+
+@app.get(
+    "/v1/live/profile/{symbol}",
+    response_model=LiveProfile,
+)
+def live_profile(symbol: str) -> LiveProfile:
+    return get_live_data_service().profile_for_symbol(symbol)
+
+
+@app.get(
+    "/v1/live/news/{symbol}",
+    response_model=list[LiveNewsItem],
+)
+def live_news(symbol: str) -> list[LiveNewsItem]:
+    return get_live_data_service().news_for_symbol(symbol)
+
+
+@app.post(
+    "/v1/live/scan/weekly-breakout",
+    response_model=LiveScanResponse,
+)
+def live_scan_weekly_breakout(
+    request: LiveScanRequest,
+) -> LiveScanResponse:
+    return get_live_data_service().scan_weekly_breakout(request)
 
 
 @app.post(
