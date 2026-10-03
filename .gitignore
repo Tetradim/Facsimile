@@ -1,0 +1,20 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Installer-generated launchers
+Facsimile.cmd
+facsimile.sh
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
