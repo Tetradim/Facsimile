@@ -39,3 +39,41 @@ jobs:
         run: npm install
       - name: Build frontend
         run: npm run build
+
+  assembled-workstation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install backend
+        run: python -m pip install -e .
+      - name: Build frontend
+        run: |
+          npm --prefix frontend install
+          npm --prefix frontend run build
+      - name: Launch installed workstation
+        run: |
+          facsimile --no-browser > /tmp/facsimile.log 2>&1 &
+          echo $! > /tmp/facsimile.pid
+      - name: Verify API and UI
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8765/health >/tmp/health.json; then
+              break
+            fi
+            sleep 1
+          done
+          grep -q '"status":"ok"' /tmp/health.json
+          curl -fsS http://127.0.0.1:8765/ | grep -q 'id="root"'
+      - name: Stop workstation
+        if: always()
+        run: |
+          if [ -f /tmp/facsimile.pid ]; then
+            kill "$(cat /tmp/facsimile.pid)" || true
+          fi
