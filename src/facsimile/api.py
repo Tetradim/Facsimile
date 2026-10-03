@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
 
 from .breakout import WeeklyBreakoutEngine
@@ -264,4 +266,14 @@ def scan_weekly_breakout_batch(
         eligible_count=eligible_count,
         excluded_count=excluded_count,
         candidates=candidates,
+    )
+
+
+_FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+
+if _FRONTEND_DIST.is_dir():
+    app.mount(
+        "/",
+        StaticFiles(directory=_FRONTEND_DIST, html=True),
+        name="frontend",
     )
