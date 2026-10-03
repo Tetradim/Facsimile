@@ -12,13 +12,40 @@ clients, or an alert transport.
 
 The preferred future Edge integration is:
 
-1. Edge supplies point-in-time OHLCV and fundamentals.
-2. Facsimile scanner engines return deterministic candidate objects.
-3. Candidate objects are converted to a versioned ScanEnvelope.
-4. Edge decides how to display, rank, persist, alert, or combine them with its
+1. Edge supplies the point-in-time market universe, classifications, OHLCV and fundamentals.
+2. Facsimile applies the shared Value Scanner / Universe Filter.
+3. Only eligible symbols are passed to scanner engines.
+4. Scanner engines return deterministic candidate objects.
+5. Candidate objects are converted to a versioned ScanEnvelope.
+6. Edge decides how to display, rank, persist, alert, or combine them with its
    own signal/risk system.
 
 No execution command is emitted by Facsimile.
+
+## Shared universe layer
+
+The universe layer is intentionally scanner-agnostic and runs before strategy
+logic.
+
+Current criteria include:
+
+- min/max price
+- sector
+- industry
+- theme
+- exchange
+- min/max market cap
+
+This supports queries such as:
+
+- all stocks under $3
+- Medical stocks under $3
+- Space stocks under $1
+
+Formal sectors and flexible themes remain separate so concepts such as Space
+do not need to be misclassified as sectors.
+
+Every current and future scanner should consume the same eligibility decision.
 
 ## Stable contract
 
@@ -33,6 +60,9 @@ Current envelope schema:
 - reasons
 - evidence
 - payload
+
+The evidence block may include the instrument profile and universe decision in
+addition to scanner-specific gates and metrics.
 
 Current scanner family:
 
@@ -65,12 +95,15 @@ The weekly breakout implementation exposes:
 - NATR, relative volume and other scoring metrics
 - optional point-in-time Quality and Growth fundamentals
 - separate Positional, Entry and Overall scores
+- universe eligibility/profile evidence when filtering is used
 
 ## What Edge should own later
 
 When merged, Edge should continue to own:
 
 - provider routing and credentials
+- the canonical listed-symbol universe
+- sector/industry/theme classification data
 - exchange-calendar/session correctness
 - storage
 - operator configuration
@@ -79,4 +112,4 @@ When merged, Edge should continue to own:
 - risk policy
 - any execution/handoff logic
 
-Facsimile should remain the deterministic scanner/scoring layer.
+Facsimile should remain the deterministic universe-filtering and scanner/scoring layer.
