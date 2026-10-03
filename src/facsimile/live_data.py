@@ -848,6 +848,13 @@ class LiveDataService:
         )
         return ordered[:20], sources
 
+    def news_for_symbol(self, symbol: str) -> list[LiveNewsItem]:
+        items, _ = self._news(symbol.upper())
+        return items
+
+    def profile_for_symbol(self, symbol: str) -> LiveProfile:
+        return self.yahoo.profile(symbol.upper())
+
     def _scan_one(
         self,
         profile_hint: LiveProfile,
