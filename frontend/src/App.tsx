@@ -399,74 +399,174 @@ function CommandCenter({ onNavigate }: { onNavigate: (page: Page) => void }) {
   );
 }
 
-function ValueScanner() {
-  const [minPrice, setMinPrice] = useState("");
-  const [maxPrice, setMaxPrice] = useState("54.22");
-  const [sector, setSector] = useState("All sectors");
-  const [theme, setTheme] = useState("All themes");
-  const [ranScan, setRanScan] = useState(false);
+type LiveProvider = {
+  name: string;
+  kind: string;
+  configured: boolean;
+  zero_key: boolean;
+  capabilities: string[];
+  detail: string;
+};
 
-  const rows = useMemo(() => {
-    const min = minPrice === "" ? 0 : Number(minPrice);
-    const max = maxPrice === "" ? Number.POSITIVE_INFINITY : Number(maxPrice);
-    return candidates.filter((row) => {
-      const sectorMatch =
-        sector === "All sectors" ||
-        row.sector === sector ||
-        (sector === "Medical" && row.theme === "Medical");
-      const themeMatch = theme === "All themes" || row.theme === theme;
-      return row.price >= min && row.price <= max && sectorMatch && themeMatch;
-    });
-  }, [minPrice, maxPrice, sector, theme]);
+type LiveNews = {
+  symbol: string;
+  title: string;
+  publisher: string;
+  published_at: string | null;
+  url: string;
+  summary: string;
+  source: string;
+};
+
+type LiveScanRow = {
+  profile: {
+    symbol: string;
+    company: string;
+    price: number;
+    sector: string | null;
+    industry: string | null;
+    exchange: string | null;
+    market_cap: number | null;
+    source: string;
+  };
+  candidate: {
+    state: "rejected" | "developing" | "confirmed";
+    scores: {
+      quality: number | null;
+      growth: number | null;
+      momentum: number;
+      breakout: number;
+      risk: number;
+      positional: number;
+      entry: number;
+      overall: number;
+    } | null;
+    metrics: Record<string, number | string | boolean | null>;
+    reasons: string[];
+  };
+  news: LiveNews[];
+  catalyst_score: number;
+  data_sources: string[];
+  error: string | null;
+};
+
+type LiveScanResponse = {
+  generated_at: string;
+  discovered_count: number;
+  scanned_count: number;
+  rows: LiveScanRow[];
+  providers: LiveProvider[];
+  warnings: string[];
+};
+
+function LiveStateBadge({ state }: { state: LiveScanRow["candidate"]["state"] }) {
+  const label =
+    state === "confirmed" ? "CONFIRMED" : state === "developing" ? "DEVELOPING" : "REJECTED";
+  const className =
+    state === "confirmed"
+      ? "status status--ready"
+      : state === "developing"
+        ? "status status--developing"
+        : "status status--rejected";
+  return <span className={className}>{label}</span>;
+}
+
+function ValueScanner() {
+  const [minPrice, setMinPrice] = useState("0.10");
+  const [maxPrice, setMaxPrice] = useState("2.50");
+  const [sector, setSector] = useState("Medical");
+  const [requireNews, setRequireNews] = useState(true);
+  const [newsDays, setNewsDays] = useState("14");
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<LiveScanResponse | null>(null);
+  const [error, setError] = useState("");
+
+  async function runLiveScan() {
+    setLoading(true);
+    setError("");
+    try {
+      const response = await fetch("/v1/live/scan/weekly-breakout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          min_price: Number(minPrice || 0),
+          max_price: Number(maxPrice || 1000000),
+          sector,
+          require_recent_news: requireNews,
+          news_lookback_days: Number(newsDays || 14),
+          max_candidates: 35,
+          max_results: 30,
+          include_rejected: true,
+        }),
+      });
+      if (!response.ok) {
+        const body = await response.text();
+        throw new Error(body || `Live scan failed with HTTP ${response.status}`);
+      }
+      setResult((await response.json()) as LiveScanResponse);
+    } catch (scanError) {
+      setError(scanError instanceof Error ? scanError.message : "Live scan failed");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const rows = result?.rows ?? [];
+  const confirmed = rows.filter((row) => row.candidate.state === "confirmed").length;
+  const developing = rows.filter((row) => row.candidate.state === "developing").length;
+  const configuredProviders = result?.providers.filter((provider) => provider.configured).length ?? 3;
 
   return (
     <>
       <div className="page-heading">
         <div>
-          <div className="eyebrow">UNIVERSE / VALUE SCANNER</div>
-          <h1>Value Scanner</h1>
-          <p>Define the investable universe first, then route matching symbols into technical scanners.</p>
+          <div className="eyebrow">LIVE UNIVERSE / WEEKLY BREAKOUT</div>
+          <h1>Live Value Scanner</h1>
+          <p>Pull current market data, recent catalysts, and completed weekly candles into the breakout engine.</p>
         </div>
-        <button className="button button--ghost">
-          <Save size={16} />
-          Save Scan
-        </button>
+        <div className="live-mode-badge">
+          <span className="live-dot" />
+          LIVE PROVIDERS
+        </div>
       </div>
 
-      <Panel title="Universe Filters" subtitle="Price values are free-form decimal inputs; presets are shortcuts only.">
+      <Panel
+        title="Universe + Catalyst Filters"
+        subtitle="Yahoo screens the live universe first; OHLCV and news then fall through the configured provider stack."
+      >
         <div className="filter-grid">
           <label className="field">
             <span>Minimum Price</span>
             <div className="money-input">
               <span>$</span>
-              <input value={minPrice} onChange={(event) => setMinPrice(event.target.value)} placeholder="0.00" inputMode="decimal" />
+              <input value={minPrice} onChange={(event) => setMinPrice(event.target.value)} inputMode="decimal" />
             </div>
           </label>
           <label className="field">
             <span>Maximum Price</span>
             <div className="money-input">
               <span>$</span>
-              <input value={maxPrice} onChange={(event) => setMaxPrice(event.target.value)} placeholder="Any" inputMode="decimal" />
+              <input value={maxPrice} onChange={(event) => setMaxPrice(event.target.value)} inputMode="decimal" />
             </div>
           </label>
           <label className="field">
             <span>Sector</span>
             <select value={sector} onChange={(event) => setSector(event.target.value)}>
-              <option>All sectors</option>
               <option>Medical</option>
-              <option>Health Care</option>
-              <option>Industrials</option>
+              <option>Healthcare</option>
+              <option>Pharmaceuticals</option>
               <option>Technology</option>
-              <option>Communication Services</option>
+              <option>Industrials</option>
+              <option>All sectors</option>
             </select>
           </label>
           <label className="field">
-            <span>Theme</span>
-            <select value={theme} onChange={(event) => setTheme(event.target.value)}>
-              <option>All themes</option>
-              <option>Space</option>
-              <option>Medical</option>
-              <option>AI</option>
+            <span>News Lookback</span>
+            <select value={newsDays} onChange={(event) => setNewsDays(event.target.value)}>
+              <option value="3">3 days</option>
+              <option value="7">7 days</option>
+              <option value="14">14 days</option>
+              <option value="30">30 days</option>
             </select>
           </label>
         </div>
@@ -478,37 +578,180 @@ function ValueScanner() {
               key={range.label}
               className="chip"
               onClick={() => {
-                setMinPrice("");
+                setMinPrice("0.10");
                 setMaxPrice(range.max);
               }}
             >
               {range.label}
             </button>
           ))}
-          <button className="chip chip--active">Custom</button>
+          <label className="news-toggle">
+            <input
+              type="checkbox"
+              checked={requireNews}
+              onChange={(event) => setRequireNews(event.target.checked)}
+            />
+            Require recent news / filing
+          </label>
         </div>
 
         <div className="scan-actions">
           <div className="scan-note">
             <Sparkles size={16} />
-            Current query: {minPrice || "0.00"} – {maxPrice || "∞"} / {sector} / {theme}
+            Medical Catalyst preset: 18% box · +2% breakout · 1.5× volume · ≤15% stop risk
           </div>
-          <button className="button button--primary button--scan" onClick={() => setRanScan(true)}>
+          <button
+            className="button button--primary button--scan"
+            onClick={runLiveScan}
+            disabled={loading}
+          >
             <Play size={16} fill="currentColor" />
-            Run Scan
+            {loading ? "Scanning Live…" : "Run Live Scan"}
           </button>
         </div>
+        {error ? <div className="live-error">{error}</div> : null}
       </Panel>
 
       <div className="metrics-grid metrics-grid--compact">
-        <MetricCard label="Universe Input" value="6 demo" detail="Live provider next" />
-        <MetricCard label="Eligible" value={String(rows.length)} detail="After price/taxonomy filters" tone="green" />
-        <MetricCard label="Excluded" value={String(candidates.length - rows.length)} detail="Filtered before scoring" tone="purple" />
-        <MetricCard label="Mode" value={ranScan ? "Scanned" : "Preview"} detail="Weekly Breakout route" tone="orange" />
+        <MetricCard
+          label="Discovered"
+          value={result ? String(result.discovered_count) : "—"}
+          detail="Live universe candidates"
+        />
+        <MetricCard
+          label="Confirmed"
+          value={result ? String(confirmed) : "—"}
+          detail="Weekly breakout confirmed"
+          tone="green"
+        />
+        <MetricCard
+          label="Developing"
+          value={result ? String(developing) : "—"}
+          detail="Worth watching"
+          tone="purple"
+        />
+        <MetricCard
+          label="Providers"
+          value={String(configuredProviders)}
+          detail="Configured data sources"
+          tone="orange"
+        />
       </div>
 
-      <Panel title="Filtered Universe" subtitle={`${rows.length} symbols match the active universe query.`}>
-        <ResultsTable rows={rows} />
+      {result?.warnings.length ? (
+        <div className="warning-strip">
+          {result.warnings.slice(0, 4).map((warning) => <span key={warning}>{warning}</span>)}
+        </div>
+      ) : null}
+
+      {result ? (
+        <Panel
+          title="Provider Status"
+          subtitle="Green sources are active on this machine. Add API keys to enable additional fallbacks."
+        >
+          <div className="provider-grid">
+            {result.providers.map((provider) => (
+              <div className="provider-card" key={provider.name}>
+                <span className={provider.configured ? "provider-dot provider-dot--on" : "provider-dot"} />
+                <div>
+                  <strong>{provider.name}</strong>
+                  <span>{provider.kind} · {provider.configured ? "active" : "not configured"}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Panel>
+      ) : null}
+
+      <Panel
+        title="Live Weekly Breakout Results"
+        subtitle={
+          result
+            ? `${rows.length} ranked rows generated ${new Date(result.generated_at).toLocaleString()}`
+            : "Run a live scan to replace the old demonstration rows with current provider data."
+        }
+      >
+        {loading ? (
+          <div className="live-loading">
+            <Activity size={22} />
+            Screening the universe, retrieving news and filings, downloading weekly history, and scoring candidates…
+          </div>
+        ) : rows.length ? (
+          <div className="table-wrap">
+            <table className="scanner-table live-table">
+              <thead>
+                <tr>
+                  <th>Symbol</th>
+                  <th>Live Price</th>
+                  <th>Sector / Industry</th>
+                  <th>State</th>
+                  <th>Overall</th>
+                  <th>Breakout</th>
+                  <th>Risk</th>
+                  <th>Catalyst</th>
+                  <th>Recent News</th>
+                  <th>Sources</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => {
+                  const scores = row.candidate.scores;
+                  const latestNews = row.news[0];
+                  return (
+                    <tr key={row.profile.symbol}>
+                      <td>
+                        <div className="symbol-cell">
+                          <div>
+                            <strong>{row.profile.symbol}</strong>
+                            <span>{row.profile.company}</span>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="numeric">${row.profile.price.toFixed(4)}</td>
+                      <td>
+                        <div className="taxonomy-cell">
+                          <span>{row.profile.sector || "—"}</span>
+                          <small>{row.profile.industry || row.profile.exchange || "—"}</small>
+                        </div>
+                      </td>
+                      <td><LiveStateBadge state={row.candidate.state} /></td>
+                      <td><span className={scoreClass(scores?.overall ?? 0)}>{scores?.overall?.toFixed(0) ?? "—"}</span></td>
+                      <td><span className={scoreClass(scores?.breakout ?? 0)}>{scores?.breakout?.toFixed(0) ?? "—"}</span></td>
+                      <td><span className={scoreClass(scores?.risk ?? 0)}>{scores?.risk?.toFixed(0) ?? "—"}</span></td>
+                      <td><span className={scoreClass(row.catalyst_score)}>{row.catalyst_score.toFixed(0)}</span></td>
+                      <td className="news-cell">
+                        {latestNews ? (
+                          <>
+                            {latestNews.url ? (
+                              <a href={latestNews.url} target="_blank" rel="noreferrer">{latestNews.title}</a>
+                            ) : (
+                              <span>{latestNews.title}</span>
+                            )}
+                            <small>
+                              {latestNews.publisher || latestNews.source}
+                              {latestNews.published_at ? ` · ${new Date(latestNews.published_at).toLocaleDateString()}` : ""}
+                            </small>
+                          </>
+                        ) : (
+                          <span className="muted">No recent item</span>
+                        )}
+                      </td>
+                      <td className="sources-cell">
+                        {row.data_sources.map((source) => <span key={source}>{source}</span>)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="empty-live-state">
+            <Radar size={24} />
+            <strong>No live scan has been run yet.</strong>
+            <span>Start with $0.10–$2.50 / Medical / 14-day news lookback.</span>
+          </div>
+        )}
       </Panel>
     </>
   );
