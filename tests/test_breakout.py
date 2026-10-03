@@ -47,16 +47,16 @@ def history_with_breakout() -> list[OHLCVBar]:
             )
         )
 
-    base = 101.0
+    base = 100.7
     for j in range(8):
         i = len(bars)
-        close = base + (0.5 if j % 2 else -0.3)
+        close = base + (j * 0.6)
         bars.append(
             make_bar(
                 i,
                 close - 0.4,
-                104.0,
-                98.5,
+                close + 1.0,
+                close - 1.0,
                 close,
                 1_000_000,
             )
@@ -66,9 +66,9 @@ def history_with_breakout() -> list[OHLCVBar]:
     bars.append(
         make_bar(
             i,
-            103.0,
-            111.5,
-            102.5,
+            106.0,
+            112.0,
+            105.0,
             110.5,
             1_700_000,
         )
@@ -110,7 +110,7 @@ def test_rejects_failed_close_above_resistance() -> None:
     bars = history_with_breakout()
     last = bars[-1]
     bars[-1] = last.model_copy(
-        update={"close": 102.0, "high": 104.5}
+        update={"close": 104.0, "high": 106.0}
     )
 
     config = BreakoutConfig(
