@@ -49,6 +49,8 @@ def weekly_breakout_envelope(
                 for gate in candidate.gates
             ],
             "metrics": candidate.metrics,
+            "universe": candidate.metadata.get("universe"),
+            "profile": candidate.metadata.get("profile"),
         },
         payload=candidate.model_dump(mode="json"),
     )
