@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "facsimile-breakout"
-version = "0.1.0"
-description = "Clean-room weekly consolidation breakout scanner designed for later Sentinel Edge integration."
+version = "0.2.0"
+description = "Clean-room market scanner workstation designed for later Sentinel Edge integration."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -13,6 +13,9 @@ dependencies = [
   "pydantic>=2.8,<3",
   "uvicorn>=0.30,<1",
 ]
+
+[project.scripts]
+facsimile = "facsimile.cli:main"
 
 [project.optional-dependencies]
 dev = [
