@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from fastapi import FastAPI
 from pydantic import BaseModel, Field, model_validator
 
@@ -88,17 +90,10 @@ def _universe_rejection(
     request: ScanRequest,
     decision: UniverseDecision,
 ) -> BreakoutCandidate:
-    as_of = (
-        max(bar.timestamp for bar in request.weekly_bars)
-        if request.weekly_bars
-        else request.profile
+    timestamp = max(
+        (bar.timestamp for bar in request.weekly_bars),
+        default=datetime.now(timezone.utc),
     )
-    if not isinstance(as_of, type(request.profile)):
-        timestamp = as_of
-    else:
-        from datetime import datetime, timezone
-
-        timestamp = datetime.now(timezone.utc)
 
     return BreakoutCandidate(
         symbol=request.symbol.upper(),
@@ -109,18 +104,28 @@ def _universe_rejection(
             "engine": "universe_filter",
             "execution": "none",
             "universe": decision.model_dump(mode="json"),
+            "profile": (
+                request.profile.model_dump(mode="json")
+                if request.profile is not None
+                else None
+            ),
         },
     )
 
 
 def _scan_weekly(request: ScanRequest) -> BreakoutCandidate:
+    universe_decision: UniverseDecision | None = None
+
     if request.profile is not None:
-        decision = evaluate_universe(
+        universe_decision = evaluate_universe(
             request.profile,
             request.universe,
         )
-        if not decision.eligible:
-            return _universe_rejection(request, decision)
+        if not universe_decision.eligible:
+            return _universe_rejection(
+                request,
+                universe_decision,
+            )
 
     candidate = WeeklyBreakoutEngine(request.config).evaluate(
         request.symbol,
@@ -129,30 +134,19 @@ def _scan_weekly(request: ScanRequest) -> BreakoutCandidate:
     )
 
     if request.profile is not None:
-        decision = evaluate_universe(
-            request.profile,
-            request.universe,
-        )
-        candidate.metadata["universe"] = decision.model_dump(
+        candidate.metadata["profile"] = request.profile.model_dump(
             mode="json"
         )
-        candidate.metadata["profile"] = request.profile.model_dump(
+
+    if universe_decision is not None:
+        candidate.metadata["universe"] = universe_decision.model_dump(
             mode="json"
         )
 
     return candidate
 
 
-@app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok", "service": "facsimile"}
-
-
-@app.post(
-    "/v1/universe/filter",
-    response_model=UniverseFilterResponse,
-)
-def filter_market_universe(
+def _filter_market_universe(
     request: UniverseFilterRequest,
 ) -> UniverseFilterResponse:
     eligible: list[InstrumentProfile] = []
@@ -175,6 +169,33 @@ def filter_market_universe(
         eligible=eligible,
         excluded=excluded,
     )
+
+
+@app.get("/health")
+def health() -> dict[str, str]:
+    return {"status": "ok", "service": "facsimile"}
+
+
+@app.post(
+    "/v1/universe/filter",
+    response_model=UniverseFilterResponse,
+)
+def filter_market_universe(
+    request: UniverseFilterRequest,
+) -> UniverseFilterResponse:
+    return _filter_market_universe(request)
+
+
+@app.post(
+    "/v1/universe/value-scan",
+    response_model=UniverseFilterResponse,
+)
+def value_scan_universe(
+    request: UniverseFilterRequest,
+) -> UniverseFilterResponse:
+    """Operator-friendly alias for price/taxonomy universe filtering."""
+
+    return _filter_market_universe(request)
 
 
 @app.post(
