@@ -6,7 +6,7 @@ Facsimile is deliberately standalone today. It does not depend on or integrate w
 
 ## Current scope
 
-The first implementation slice provides:
+The implementation currently provides:
 
 - completed-week OHLCV aggregation
 - body-based consolidation-box detection
@@ -17,6 +17,14 @@ The first implementation slice provides:
 - structural stop and maximum-risk validation
 - separate Quality, Growth, Momentum, Breakout, Risk, Positional, Entry and Overall scores
 - optional point-in-time fundamental inputs
+- a shared **Value Scanner / Universe Filter** with:
+  - minimum and maximum stock price
+  - sector selection
+  - industry selection
+  - theme selection such as Space
+  - exchange selection
+  - minimum and maximum market cap
+- batch scanning where the universe filter runs before technical scanner logic
 - a stable versioned scanner envelope for future Edge ingestion
 - FastAPI scan endpoints
 - deterministic tests and CI
@@ -31,7 +39,17 @@ The contract is designed so additional scanners can be added without changing th
 - Opening Breakout
 - Short Squeeze
 
-These scanners will remain evidence-producing engines. Sentinel Edge will later own provider routing, alert delivery, cross-scanner ranking, risk policy and any execution/handoff behavior.
+The Value Scanner is not a competing strategy family. It is the common pre-scan universe layer that all of those scanners use.
+
+Examples:
+
+- all stocks under $3
+- all stocks from $0.50 to $3
+- Medical stocks under $3
+- Space stocks under $1
+- Industrials + Space theme under $10
+
+These scanners remain evidence-producing engines. Sentinel Edge will later own provider routing, alert delivery, cross-scanner ranking, risk policy and any execution/handoff behavior.
 
 ## Development
 
@@ -41,4 +59,4 @@ pytest -q
 uvicorn facsimile.api:app --reload
 ```
 
-See [docs/EDGE_INTEGRATION.md](docs/EDGE_INTEGRATION.md) for the integration boundary.
+See [docs/VALUE_SCANNER.md](docs/VALUE_SCANNER.md) for universe-filter examples and [docs/EDGE_INTEGRATION.md](docs/EDGE_INTEGRATION.md) for the integration boundary.
