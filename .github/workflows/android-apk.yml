@@ -1,0 +1,76 @@
+name: android-apk
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/android-apk
+    paths:
+      - "frontend/**"
+      - ".github/workflows/android-apk.yml"
+      - "docs/ANDROID.md"
+      - "mobile-server.bat"
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package.json
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Install Android SDK 36
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm install
+
+      - name: Build web assets
+        working-directory: frontend
+        run: npm run build
+
+      - name: Generate Capacitor Android project
+        working-directory: frontend
+        run: |
+          npx cap add android
+          npx cap sync android
+
+      - name: Build debug APK
+        working-directory: frontend/android
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleDebug
+
+      - name: Stage APK
+        run: |
+          mkdir -p artifacts
+          cp frontend/android/app/build/outputs/apk/debug/app-debug.apk artifacts/facsimile-debug.apk
+          sha256sum artifacts/facsimile-debug.apk > artifacts/facsimile-debug.apk.sha256
+
+      - name: Upload Facsimile APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: facsimile-android-debug
+          path: |
+            artifacts/facsimile-debug.apk
+            artifacts/facsimile-debug.apk.sha256
+          if-no-files-found: error
+          retention-days: 30
