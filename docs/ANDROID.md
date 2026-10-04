@@ -19,7 +19,7 @@ GitHub Actions builds a debug APK on the `feature/android-apk` branch.
 The workflow:
 
 1. installs Node 22
-2. builds the React UI
+2. builds the React UI with Node 22 and Java 21 available
 3. generates the Capacitor Android project
 4. installs Android SDK 36
 5. builds `assembleDebug`
