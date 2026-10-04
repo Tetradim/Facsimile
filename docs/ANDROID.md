@@ -1,73 +1,81 @@
 # Facsimile Android APK
 
-The Android build uses Capacitor to package the Facsimile React workstation as
-a native Android application.
+Facsimile has two Android modes. The default on the
+`feature/android-standalone` branch is fully standalone: no Windows machine,
+LAN server, or Python process is required.
 
-## Architecture
+## Standalone architecture
 
-The APK contains the UI and native networking bridge. The scanner engine and
-live-data provider stack remain in the Python Facsimile API service so Android
-and desktop use the same deterministic scanner implementation.
+The APK contains:
 
-This avoids maintaining a second breakout engine in JavaScript and keeps
-provider behavior consistent across platforms.
+- the React/Capacitor workstation
+- the weekly breakout scanner engine ported to TypeScript
+- moving-average, MACD, NATR, volume and candle calculations
+- consolidation-box detection
+- structural stop/risk calculations
+- breakout, momentum, risk, entry and overall scoring
+- catalyst/news scoring
+- native HTTPS market-data access
+
+The phone communicates directly with internet data sources using Capacitor's
+native HTTP layer.
+
+### Zero-key sources
+
+The standalone build currently uses:
+
+- Nasdaq's public stock screener web endpoint for the U.S. equity universe,
+  price, sector, industry and market-cap metadata
+- Yahoo Finance chart endpoints for weekly OHLCV
+- Yahoo Finance search/news endpoints for recent company news
+
+Yahoo is an unofficial source and can change or throttle access. Facsimile
+reports provider provenance and retrieval warnings instead of treating it as a
+guaranteed exchange feed.
+
+## First run
+
+1. Install the standalone APK.
+2. Open **Settings**.
+3. Confirm **Standalone** is selected.
+4. Open **Value Scanner**.
+5. Enter a price range and sector.
+6. Tap **Run Live Scan**.
+
+No server URL is required.
+
+For the original test:
+
+```text
+Minimum price:       0.10
+Maximum price:       2.50
+Sector:              Medical
+News lookback:       14 days
+Require recent news: On
+```
+
+## Optional remote mode
+
+The Python FastAPI service still exists for desktop use and parity testing.
+Android **Settings → Remote API** can point at a hosted Facsimile server if
+desired, but this is optional.
+
+The old `10.0.2.2:8765` address is only for an Android emulator talking to a
+server running on its host computer. It is not used by standalone mode.
 
 ## Build
 
-GitHub Actions builds a debug APK on the `feature/android-apk` branch.
+GitHub Actions builds the APK on both Android branches. The standalone workflow:
 
-The workflow:
-
-1. installs Node 22
-2. builds the React UI with Node 22 and Java 21 available
-3. generates the Capacitor Android project
-4. installs Android SDK 36
-5. builds `assembleDebug`
-6. uploads `facsimile-debug.apk` as a workflow artifact
-
-## Using a physical Android phone
-
-The phone and the computer running Facsimile should be on the same trusted
-local network.
-
-On Windows:
-
-```text
-mobile-server.bat
-```
-
-This starts Facsimile on all local interfaces at port 8765.
-
-Find your PC's LAN IPv4 address with:
-
-```text
-ipconfig
-```
-
-Then open **Settings** in the Android app and enter, for example:
-
-```text
-http://192.168.1.50:8765
-```
-
-Tap **Test Connection**. When the health check succeeds, live scans use that
-server.
-
-Do not expose port 8765 directly to the public internet. For remote use, deploy
-the API behind HTTPS and authentication.
-
-## Android emulator
-
-The default Android API URL is:
-
-```text
-http://10.0.2.2:8765
-```
-
-Android emulators map `10.0.2.2` to the host computer.
+1. installs Node 22 and Java 21
+2. installs Android SDK 36
+3. builds the React application
+4. generates the Capacitor Android project
+5. runs Gradle `assembleDebug`
+6. uploads `facsimile-android-debug.apk` plus a SHA-256 checksum
 
 ## Release signing
 
-The CI workflow currently produces an installable debug APK for testing.
-A Play Store build should use a release keystore stored in GitHub Actions
-secrets and produce a signed AAB/APK.
+The current APK is debug-signed for direct testing. A Play Store release should
+use a private release keystore stored in GitHub Actions secrets and produce a
+signed AAB/APK.
