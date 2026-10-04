@@ -15,6 +15,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from .breakout import WeeklyBreakoutEngine
+from .catalysts import (
+    CatalystEvidence,
+    StructuredCatalystService,
+    structured_catalyst_score,
+)
 from .intelligence import CandidateIntelligence, build_candidate_intelligence
 from .models import BreakoutCandidate, BreakoutConfig, FundamentalSnapshot, OHLCVBar, VolumeMode
 from .strategy import StrategyDefinition, StrategyEvaluation, evaluate_strategy
@@ -56,6 +61,7 @@ class LiveScanRequest(BaseModel):
     max_price: float = Field(default=2.50, gt=0)
     sector: str = "Medical"
     require_recent_news: bool = True
+    include_structured_catalysts: bool = True
     news_lookback_days: int = Field(default=14, ge=1, le=90)
     max_candidates: int = Field(default=35, ge=1, le=100)
     max_results: int = Field(default=30, ge=1, le=100)
@@ -69,6 +75,7 @@ class LiveScanRow(BaseModel):
     profile: LiveProfile
     candidate: BreakoutCandidate
     news: list[LiveNewsItem] = Field(default_factory=list)
+    catalysts: list[CatalystEvidence] = Field(default_factory=list)
     catalyst_score: float = Field(default=0, ge=0, le=100)
     intelligence: CandidateIntelligence | None = None
     strategy_evaluation: StrategyEvaluation | None = None
@@ -1041,6 +1048,7 @@ class EodhdProvider(RestProvider):
 class LiveDataService:
     def __init__(self) -> None:
         self.yahoo = YahooProvider()
+        self.catalysts = StructuredCatalystService()
         self.nasdaq_screener = NasdaqScreenerProvider()
         self.nasdaq = NasdaqDirectoryProvider()
         self.sec = SecEdgarProvider()
@@ -1091,6 +1099,31 @@ class LiveDataService:
                 zero_key=True,
                 capabilities=["recent filings", "company mapping"],
                 detail="Real-time public filing catalyst/evidence source.",
+            ),
+            ProviderStatus(
+                name="ClinicalTrials.gov",
+                kind="catalyst",
+                configured=True,
+                zero_key=True,
+                capabilities=[
+                    "sponsor trials",
+                    "phase",
+                    "trial status",
+                    "primary completion dates",
+                ],
+                detail="Structured clinical-trial catalyst evidence.",
+            ),
+            ProviderStatus(
+                name="openFDA Drugs@FDA",
+                kind="catalyst",
+                configured=True,
+                zero_key=True,
+                capabilities=[
+                    "drug applications",
+                    "submission status",
+                    "submission dates",
+                ],
+                detail="Structured FDA application/submission evidence.",
             ),
             ProviderStatus(
                 name=self.alpha.name,
@@ -1308,13 +1341,61 @@ class LiveDataService:
         news, news_sources = self._news(profile.symbol)
         sources.extend(news_sources)
 
+        structured_catalysts: list[CatalystEvidence] = []
+        if request.include_structured_catalysts:
+            sector_text = (profile.sector or "").lower()
+            industry_text = (profile.industry or "").lower()
+            is_medical = (
+                "health" in sector_text
+                or any(
+                    term in industry_text
+                    for term in (
+                        "biotech",
+                        "pharma",
+                        "medical",
+                        "diagnostic",
+                        "drug",
+                        "life science",
+                    )
+                )
+            )
+            if is_medical:
+                structured_catalysts, catalyst_warnings = (
+                    self.catalysts.evidence_for_company(profile.company)
+                )
+                if structured_catalysts:
+                    sources.extend(
+                        item.source
+                        for item in structured_catalysts
+                    )
+                if catalyst_warnings:
+                    candidate_warning_text = "; ".join(catalyst_warnings[:2])
+                else:
+                    candidate_warning_text = ""
+            else:
+                candidate_warning_text = ""
+        else:
+            candidate_warning_text = ""
+
         cutoff = datetime.now(timezone.utc) - timedelta(days=request.news_lookback_days)
         recent_news = [
             item
             for item in news
             if item.published_at is None or item.published_at >= cutoff
         ]
-        if request.require_recent_news and not recent_news:
+        headline_catalyst_score = _catalyst_score(recent_news)
+        registry_catalyst_score = structured_catalyst_score(
+            structured_catalysts
+        )
+        combined_catalyst_score = max(
+            headline_catalyst_score,
+            registry_catalyst_score,
+        )
+        has_catalyst = (
+            bool(recent_news)
+            or registry_catalyst_score >= 40
+        )
+        if request.require_recent_news and not has_catalyst:
             bars, bar_source = self._weekly_bars(profile.symbol)
             sources.append(bar_source)
             candidate = WeeklyBreakoutEngine(config).evaluate(
@@ -1326,12 +1407,16 @@ class LiveDataService:
             candidate.reasons.append(
                 f"No news/filing found in the last {request.news_lookback_days} days"
             )
+            if candidate_warning_text:
+                candidate.metadata["catalyst_warning"] = (
+                    candidate_warning_text
+                )
             intelligence = build_candidate_intelligence(
                 candidate,
                 bars,
                 benchmark_bars,
                 [],
-                0,
+                combined_catalyst_score,
             )
             strategy_evaluation = (
                 evaluate_strategy(
@@ -1340,7 +1425,7 @@ class LiveDataService:
                         profile,
                         candidate,
                         intelligence,
-                        0,
+                        combined_catalyst_score,
                     ),
                 )
                 if request.strategy is not None
@@ -1350,7 +1435,8 @@ class LiveDataService:
                 profile=profile,
                 candidate=candidate,
                 news=[],
-                catalyst_score=0,
+                catalysts=structured_catalysts,
+                catalyst_score=combined_catalyst_score,
                 intelligence=intelligence,
                 strategy_evaluation=strategy_evaluation,
                 data_sources=sorted(set(sources)),
@@ -1372,7 +1458,12 @@ class LiveDataService:
         )
         candidate.metadata["live_data_sources"] = sorted(set(sources))
         candidate.metadata["recent_news_count"] = len(recent_news)
-        catalyst_score = _catalyst_score(recent_news)
+        catalyst_score = combined_catalyst_score
+        candidate.metadata["structured_catalyst_count"] = len(
+            structured_catalysts
+        )
+        if candidate_warning_text:
+            candidate.metadata["catalyst_warning"] = candidate_warning_text
         intelligence = build_candidate_intelligence(
             candidate,
             bars,
@@ -1397,6 +1488,7 @@ class LiveDataService:
             profile=profile,
             candidate=candidate,
             news=recent_news[:8],
+            catalysts=structured_catalysts[:8],
             catalyst_score=catalyst_score,
             intelligence=intelligence,
             strategy_evaluation=strategy_evaluation,
