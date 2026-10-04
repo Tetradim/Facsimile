@@ -320,9 +320,13 @@ class YahooProvider:
             return None
         return FundamentalSnapshot(**values)
 
-    def daily_bars(self, symbol: str) -> list[OHLCVBar]:
+    def daily_bars(
+        self,
+        symbol: str,
+        period: str = "2y",
+    ) -> list[OHLCVBar]:
         frame = yf.Ticker(symbol).history(
-            period="2y",
+            period=period,
             interval="1d",
             auto_adjust=False,
             actions=False,
@@ -1285,7 +1289,20 @@ class LiveDataService:
         weeks: int = 104,
     ) -> LiveChartResponse:
         normalized = symbol.upper().strip()
-        bars, source = self._weekly_bars(normalized)
+        source = "yahoo_history"
+        try:
+            daily = self.yahoo.daily_bars(
+                normalized,
+                period="10y" if weeks > 104 else "2y",
+            )
+            bars = aggregate_daily_to_weekly(
+                daily,
+                exclude_partial_week=True,
+            )
+            if len(bars) < 35:
+                raise RuntimeError("Yahoo history returned insufficient weekly bars")
+        except Exception:
+            bars, source = self._weekly_bars(normalized)
         try:
             profile = self.yahoo.profile(
                 normalized,
