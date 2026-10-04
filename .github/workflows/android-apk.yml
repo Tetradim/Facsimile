@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - feature/android-apk
+      - feature/android-standalone
     paths:
       - "frontend/**"
       - ".github/workflows/android-apk.yml"
@@ -62,13 +63,13 @@ jobs:
       - name: Stage APK
         run: |
           mkdir -p artifacts
-          cp frontend/android/app/build/outputs/apk/debug/app-debug.apk artifacts/facsimile-debug.apk
-          sha256sum artifacts/facsimile-debug.apk > artifacts/facsimile-debug.apk.sha256
+          cp frontend/android/app/build/outputs/apk/debug/app-debug.apk artifacts/facsimile-android-debug.apk
+          sha256sum artifacts/facsimile-debug.apk > artifacts/facsimile-android-debug.apk.sha256
 
       - name: Upload Facsimile APK
         uses: actions/upload-artifact@v4
         with:
-          name: facsimile-android-debug
+          name: facsimile-android-standalone
           path: |
             artifacts/facsimile-debug.apk
             artifacts/facsimile-debug.apk.sha256
