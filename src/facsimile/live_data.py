@@ -94,6 +94,14 @@ class LiveScanResponse(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class LiveChartResponse(BaseModel):
+    symbol: str
+    profile: LiveProfile
+    bars: list[OHLCVBar]
+    candidate: BreakoutCandidate
+    source: str
+
+
 MEDICAL_SECTORS = ("Healthcare",)
 CATALYST_TERMS = {
     "fda": 30,
@@ -1267,6 +1275,49 @@ class LiveDataService:
 
     def profile_for_symbol(self, symbol: str) -> LiveProfile:
         return self.yahoo.profile(symbol.upper())
+
+    def weekly_bars_for_symbol(self, symbol: str) -> tuple[list[OHLCVBar], str]:
+        return self._weekly_bars(symbol.upper())
+
+    def chart_for_symbol(
+        self,
+        symbol: str,
+        weeks: int = 104,
+    ) -> LiveChartResponse:
+        normalized = symbol.upper().strip()
+        bars, source = self._weekly_bars(normalized)
+        try:
+            profile = self.yahoo.profile(
+                normalized,
+                bars[-1].close if bars else None,
+            )
+        except Exception:
+            if not bars:
+                raise
+            profile = LiveProfile(
+                symbol=normalized,
+                company=normalized,
+                price=bars[-1].close,
+                source=source,
+            )
+        try:
+            fundamentals = self.yahoo.fundamentals(normalized)
+        except Exception:
+            fundamentals = None
+        candidate = WeeklyBreakoutEngine(
+            medical_breakout_config()
+        ).evaluate(
+            normalized,
+            bars,
+            fundamentals,
+        )
+        return LiveChartResponse(
+            symbol=normalized,
+            profile=profile,
+            bars=bars[-max(35, min(weeks, 260)):],
+            candidate=candidate,
+            source=source,
+        )
 
 
     @staticmethod
