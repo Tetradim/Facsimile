@@ -1726,3 +1726,138 @@ button {
     flex: 1;
   }
 }
+
+
+/* Active watchlists, historical replay, and Lightweight Charts */
+.lwc-shell {
+  display: grid;
+  gap: 7px;
+}
+
+.lwc-chart {
+  width: 100%;
+  min-height: 360px;
+  border: 1px solid #1d2a3d;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #09101a;
+}
+
+.lwc-attribution {
+  color: #63748b;
+  font-size: 9px;
+  text-align: right;
+}
+
+.lwc-attribution a {
+  color: #6f9fe8;
+  text-decoration: none;
+}
+
+.watchlist-create {
+  margin-bottom: 14px;
+}
+
+.watchlist-grid {
+  display: grid;
+  gap: 14px;
+}
+
+.watchlist-card {
+  overflow: visible;
+}
+
+.watchlist-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.watch-snapshot-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  min-height: 38px;
+}
+
+.watch-symbol {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid #223149;
+  border-radius: 7px;
+  background: #0b131f;
+}
+
+.watch-symbol strong {
+  color: #dce7f4;
+  font-size: 10px;
+}
+
+.watch-symbol small {
+  color: #75869d;
+  font-size: 9px;
+}
+
+.watch-symbol .tier {
+  min-width: 27px;
+  padding: 3px 5px;
+  font-size: 8px;
+}
+
+.watch-events {
+  display: grid;
+  gap: 6px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #1b2739;
+}
+
+.watch-events > strong {
+  color: #aebed1;
+  font-size: 10px;
+}
+
+.watch-event {
+  display: grid;
+  grid-template-columns: 70px minmax(160px, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 7px 9px;
+  border: 1px solid #182437;
+  border-radius: 7px;
+  background: #09111b;
+}
+
+.watch-event span {
+  color: #d9e6f5;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.watch-event b {
+  color: #91a3ba;
+  font-size: 9px;
+  font-weight: 600;
+}
+
+.watch-event small {
+  color: #596a80;
+  font-size: 8px;
+}
+
+@media (max-width: 900px) {
+  .lwc-chart {
+    min-height: 320px;
+  }
+
+  .watchlist-actions {
+    width: 100%;
+  }
+
+  .watch-event {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+}
