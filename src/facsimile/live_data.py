@@ -291,12 +291,22 @@ class YahooProvider:
 
     def fundamentals(self, symbol: str) -> FundamentalSnapshot | None:
         info = yf.Ticker(symbol).get_info() or {}
+        debt_to_equity = _as_float(info.get("debtToEquity"))
+        if debt_to_equity is not None and debt_to_equity > 10:
+            debt_to_equity = debt_to_equity / 100.0
+
         values = {
             "revenue_growth": _as_float(info.get("revenueGrowth")),
             "earnings_growth": _as_float(info.get("earningsGrowth")),
             "operating_margin": _as_float(info.get("operatingMargins")),
+            "gross_margin": _as_float(info.get("grossMargins")),
             "return_on_equity": _as_float(info.get("returnOnEquity")),
-            "debt_to_equity": _as_float(info.get("debtToEquity")),
+            "debt_to_equity": debt_to_equity,
+            "current_ratio": _as_float(info.get("currentRatio")),
+            "total_cash": _as_float(info.get("totalCash")),
+            "total_debt": _as_float(info.get("totalDebt")),
+            "operating_cashflow": _as_float(info.get("operatingCashflow")),
+            "free_cashflow": _as_float(info.get("freeCashflow")),
         }
         if all(value is None for value in values.values()):
             return None
