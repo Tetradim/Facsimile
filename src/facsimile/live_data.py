@@ -10,6 +10,9 @@ from typing import Any
 import httpx
 import yfinance as yf
 from pydantic import BaseModel, Field
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from .breakout import WeeklyBreakoutEngine
 from .models import BreakoutCandidate, BreakoutConfig, FundamentalSnapshot, OHLCVBar, VolumeMode
@@ -77,7 +80,7 @@ class LiveScanResponse(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
-MEDICAL_SECTORS = ("Healthcare", "Pharmaceuticals")
+MEDICAL_SECTORS = ("Healthcare",)
 CATALYST_TERMS = {
     "fda": 30,
     "phase 3": 28,
@@ -184,7 +187,16 @@ class YahooProvider:
         ]
         sector = request.sector.strip().lower()
         if sector and sector not in {"all", "all sectors"}:
-            if sector in {"medical", "health", "health care", "healthcare", "biotech"}:
+            if sector in {
+                "medical",
+                "health",
+                "health care",
+                "healthcare",
+                "biotech",
+                "biotechnology",
+                "pharmaceuticals",
+                "pharma",
+            }:
                 clauses.append(
                     yf.EquityQuery(
                         "or",
@@ -1095,6 +1107,7 @@ class LiveDataService:
                 bars,
                 None,
             )
+            candidate.state = candidate.state.__class__.REJECTED
             candidate.reasons.append(
                 f"No news/filing found in the last {request.news_lookback_days} days"
             )
