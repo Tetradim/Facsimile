@@ -532,7 +532,7 @@ function ValueScanner() {
 
       <Panel
         title="Universe + Catalyst Filters"
-        subtitle="Yahoo screens the live universe first; OHLCV and news then fall through the configured provider stack."
+        subtitle="Nasdaq screens the zero-key universe first; Yahoo supplies OHLCV/news and acts as the universe fallback."
       >
         <div className="filter-grid">
           <label className="field">
