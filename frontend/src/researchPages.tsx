@@ -63,6 +63,14 @@ type WatchlistRefreshResponse = {
   events: WatchlistEvent[];
 };
 
+type MonitorStatus = {
+  running: boolean;
+  auto_refresh_watchlists: number;
+  due_watchlists: number;
+  last_tick_at: string | null;
+  last_completed_at: string | null;
+};
+
 type LiveChartBar = {
   timestamp: string;
   open: number;
@@ -188,6 +196,8 @@ export function WatchlistsPage() {
   const [refreshingId, setRefreshingId] = useState<string | null>(null);
   const [events, setEvents] = useState<WatchlistEvent[]>([]);
   const [latestScan, setLatestScan] = useState<WatchScanResponse | null>(null);
+  const [selectedWatchlistId, setSelectedWatchlistId] = useState<string | null>(null);
+  const [monitorStatus, setMonitorStatus] = useState<MonitorStatus | null>(null);
   const [message, setMessage] = useState("");
 
   async function loadWatchlists() {
@@ -200,9 +210,28 @@ export function WatchlistsPage() {
     }
   }
 
+  async function loadMonitorStatus() {
+    try {
+      const response = await fetch("/v1/monitor/status");
+      if (!response.ok) return;
+      setMonitorStatus((await response.json()) as MonitorStatus);
+    } catch {
+      // The workstation remains usable even if monitor status is unavailable.
+    }
+  }
+
   useEffect(() => {
     void loadWatchlists();
-  }, []);
+    void loadMonitorStatus();
+    const interval = window.setInterval(() => {
+      void loadWatchlists();
+      void loadMonitorStatus();
+      if (selectedWatchlistId) {
+        void loadEvents(selectedWatchlistId, false);
+      }
+    }, 60_000);
+    return () => window.clearInterval(interval);
+  }, [selectedWatchlistId]);
 
   async function createWatchlist() {
     setLoading(true);
@@ -270,12 +299,15 @@ export function WatchlistsPage() {
     }
   }
 
-  async function loadEvents(id: string) {
+  async function loadEvents(id: string, select = true) {
     try {
       const response = await fetch("/v1/watchlists/" + id + "/events?limit=100");
       if (!response.ok) throw new Error(await response.text());
       setEvents((await response.json()) as WatchlistEvent[]);
-      setLatestScan(null);
+      if (select) {
+        setSelectedWatchlistId(id);
+        setLatestScan(null);
+      }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not load events.");
     }
@@ -335,9 +367,19 @@ export function WatchlistsPage() {
           <h1>Watchlists</h1>
           <p>Persist scanner definitions, monitor them automatically when enabled, and surface only meaningful state changes.</p>
         </div>
-        <div className="live-mode-badge">
-          <span className="live-dot" />
-          AUTO MONITOR READY
+        <div className="monitor-status-stack">
+          <div className="live-mode-badge">
+            <span className="live-dot" />
+            {monitorStatus?.running ? "AUTO MONITOR RUNNING" : "AUTO MONITOR READY"}
+          </div>
+          {monitorStatus ? (
+            <span className="monitor-status-copy">
+              {monitorStatus.auto_refresh_watchlists} automatic · {monitorStatus.due_watchlists} due
+              {monitorStatus.last_tick_at
+                ? " · tick " + new Date(monitorStatus.last_tick_at).toLocaleTimeString()
+                : ""}
+            </span>
+          ) : null}
         </div>
       </div>
 
