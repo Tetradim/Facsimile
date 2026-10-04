@@ -2032,3 +2032,26 @@ button {
   background: rgba(34, 197, 94, 0.10);
   color: #75e49a;
 }
+
+
+.monitor-status-stack {
+  display: grid;
+  justify-items: end;
+  gap: 5px;
+}
+
+.monitor-status-copy {
+  color: #72839a;
+  font-size: 8px;
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .monitor-status-stack {
+    justify-items: start;
+  }
+
+  .monitor-status-copy {
+    white-space: normal;
+  }
+}
