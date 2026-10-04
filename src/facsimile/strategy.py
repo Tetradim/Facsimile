@@ -155,8 +155,85 @@ def medical_catalyst_weekly_strategy() -> StrategyDefinition:
     )
 
 
+def weekly_breakout_technical_strategy() -> StrategyDefinition:
+    return StrategyDefinition(
+        name="Weekly Breakout Technical",
+        description=(
+            "Historical-safe weekly breakout preset using price structure, "
+            "trend, relative volume and structural risk without requiring "
+            "historical news/catalyst reconstruction."
+        ),
+        all_of=StrategyGroup(
+            mode=LogicMode.ALL,
+            conditions=[
+                StrategyCondition(
+                    field="box_bars",
+                    operator=FilterOperator.GTE,
+                    value=6,
+                    timeframe="1w",
+                ),
+                StrategyCondition(
+                    field="box_width_pct",
+                    operator=FilterOperator.LTE,
+                    value=0.18,
+                    timeframe="1w",
+                ),
+                StrategyCondition(
+                    field="close_above_box_pct",
+                    operator=FilterOperator.GTE,
+                    value=0.02,
+                    timeframe="1w",
+                ),
+                StrategyCondition(
+                    field="close_location",
+                    operator=FilterOperator.GTE,
+                    value=0.80,
+                    timeframe="1w",
+                ),
+                StrategyCondition(
+                    field="upper_wick_ratio",
+                    operator=FilterOperator.LTE,
+                    value=0.35,
+                    timeframe="1w",
+                ),
+                StrategyCondition(
+                    field="volume_vs_average",
+                    operator=FilterOperator.GTE,
+                    value=1.50,
+                    timeframe="1w",
+                ),
+                StrategyCondition(
+                    field="stop_risk_pct",
+                    operator=FilterOperator.LTE,
+                    value=0.15,
+                    timeframe="1w",
+                ),
+                StrategyCondition(
+                    field="scores.technical",
+                    operator=FilterOperator.GTE,
+                    value=70,
+                    timeframe="1w",
+                ),
+            ],
+        ),
+        metadata={
+            "scanner_family": "weekly_breakout",
+            "historical_safe": True,
+            "reusable_for": [
+                "scan",
+                "watchlist",
+                "alert",
+                "backtest",
+            ],
+        },
+    )
+
+
 def default_presets() -> list[StrategyDefinition]:
-    return [medical_catalyst_weekly_strategy()]
+    return [
+        medical_catalyst_weekly_strategy(),
+        weekly_breakout_technical_strategy(),
+    ]
 
 
 class ConditionResult(BaseModel):
