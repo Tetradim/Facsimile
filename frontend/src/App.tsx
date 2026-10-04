@@ -418,6 +418,18 @@ type LiveNews = {
   source: string;
 };
 
+type StructuredCatalyst = {
+  source: string;
+  kind: string;
+  title: string;
+  score: number;
+  event_date: string | null;
+  status: string | null;
+  phase: string | null;
+  url: string;
+  summary: string;
+};
+
 type LiveScanRow = {
   profile: {
     symbol: string;
@@ -445,6 +457,7 @@ type LiveScanRow = {
     reasons: string[];
   };
   news: LiveNews[];
+  catalysts: StructuredCatalyst[];
   catalyst_score: number;
   rank: number | null;
   intelligence: {
@@ -574,6 +587,7 @@ function IntelligenceResultsTable({
             const intelligence = row.intelligence;
             const scores = intelligence?.scores;
             const latestNews = row.news[0];
+            const structuredCatalyst = row.catalysts?.[0];
             return (
               <tr key={row.profile.symbol}>
                 <td className="numeric rank-cell">{row.rank ?? "—"}</td>
@@ -644,7 +658,24 @@ function IntelligenceResultsTable({
                       </span>
                     </td>
                     <td className="news-cell">
-                      {latestNews ? (
+                      {structuredCatalyst ? (
+                        <>
+                          {structuredCatalyst.url ? (
+                            <a href={structuredCatalyst.url} target="_blank" rel="noreferrer">
+                              {structuredCatalyst.title}
+                            </a>
+                          ) : (
+                            <span>{structuredCatalyst.title}</span>
+                          )}
+                          <small>
+                            {structuredCatalyst.source}
+                            {structuredCatalyst.phase ? " · " + structuredCatalyst.phase : ""}
+                            {structuredCatalyst.event_date
+                              ? " · " + new Date(structuredCatalyst.event_date).toLocaleDateString()
+                              : ""}
+                          </small>
+                        </>
+                      ) : latestNews ? (
                         <>
                           {latestNews.url ? (
                             <a href={latestNews.url} target="_blank" rel="noreferrer">
@@ -661,7 +692,7 @@ function IntelligenceResultsTable({
                           </small>
                         </>
                       ) : (
-                        <span className="muted">No recent item</span>
+                        <span className="muted">No catalyst evidence</span>
                       )}
                     </td>
                   </>
