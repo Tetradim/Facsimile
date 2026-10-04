@@ -37,6 +37,9 @@ type WatchlistRecord = {
   id: string;
   name: string;
   enabled: boolean;
+  auto_refresh: boolean;
+  refresh_interval_minutes: number;
+  last_error: string | null;
   created_at: string;
   updated_at: string;
   last_refreshed_at: string | null;
@@ -179,6 +182,8 @@ export function WatchlistsPage() {
   const [name, setName] = useState("Medical Catalyst Watch");
   const [minPrice, setMinPrice] = useState("0.10");
   const [maxPrice, setMaxPrice] = useState("2.50");
+  const [autoRefresh, setAutoRefresh] = useState(false);
+  const [refreshInterval, setRefreshInterval] = useState("60");
   const [loading, setLoading] = useState(false);
   const [refreshingId, setRefreshingId] = useState<string | null>(null);
   const [events, setEvents] = useState<WatchlistEvent[]>([]);
@@ -214,6 +219,8 @@ export function WatchlistsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name,
+          auto_refresh: autoRefresh,
+          refresh_interval_minutes: Number(refreshInterval || 60),
           scan_request: {
             min_price: Number(minPrice),
             max_price: Number(maxPrice),
@@ -274,6 +281,39 @@ export function WatchlistsPage() {
     }
   }
 
+  async function updateMonitoring(
+    watchlist: WatchlistRecord,
+    auto: boolean,
+    interval = watchlist.refresh_interval_minutes,
+  ) {
+    try {
+      const response = await fetch(
+        "/v1/watchlists/" + watchlist.id + "/monitoring",
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            auto_refresh: auto,
+            refresh_interval_minutes: interval,
+          }),
+        },
+      );
+      if (!response.ok) throw new Error(await response.text());
+      await loadWatchlists();
+      setMessage(
+        auto
+          ? "Automatic monitoring enabled for " + watchlist.name + "."
+          : "Automatic monitoring disabled for " + watchlist.name + ".",
+      );
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not update automatic monitoring.",
+      );
+    }
+  }
+
   async function deleteWatchlist(id: string) {
     if (!window.confirm("Delete this watchlist and its local event history?")) return;
     try {
@@ -293,11 +333,11 @@ export function WatchlistsPage() {
         <div>
           <div className="eyebrow">MONITOR / STATE CHANGES</div>
           <h1>Watchlists</h1>
-          <p>Persist scanner definitions and surface only meaningful changes between refreshes.</p>
+          <p>Persist scanner definitions, monitor them automatically when enabled, and surface only meaningful state changes.</p>
         </div>
         <div className="live-mode-badge">
           <span className="live-dot" />
-          LOCAL PERSISTENCE
+          AUTO MONITOR READY
         </div>
       </div>
 
@@ -319,6 +359,30 @@ export function WatchlistsPage() {
             <label className="field">
               <span>Universe</span>
               <input value="Medical" disabled />
+            </label>
+            <label className="field">
+              <span>Auto Monitor</span>
+              <select
+                value={autoRefresh ? "on" : "off"}
+                onChange={(event) => setAutoRefresh(event.target.value === "on")}
+              >
+                <option value="off">Manual refresh</option>
+                <option value="on">Automatic</option>
+              </select>
+            </label>
+            <label className="field">
+              <span>Refresh Interval</span>
+              <select
+                value={refreshInterval}
+                onChange={(event) => setRefreshInterval(event.target.value)}
+                disabled={!autoRefresh}
+              >
+                <option value="15">15 minutes</option>
+                <option value="30">30 minutes</option>
+                <option value="60">1 hour</option>
+                <option value="120">2 hours</option>
+                <option value="240">4 hours</option>
+              </select>
             </label>
           </div>
           <button className="button button--primary button--full" onClick={createWatchlist} disabled={loading}>
@@ -355,12 +419,25 @@ export function WatchlistsPage() {
                 <div>
                   <strong>{watchlist.name}</strong>
                   <span>
+                    {watchlist.auto_refresh
+                      ? "Auto every " + String(watchlist.refresh_interval_minutes) + " min"
+                      : "Manual refresh"}
+                    {" · "}
                     {watchlist.last_refreshed_at
-                      ? "Last refreshed " + new Date(watchlist.last_refreshed_at).toLocaleString()
-                      : "No baseline snapshot yet"}
+                      ? "Last " + new Date(watchlist.last_refreshed_at).toLocaleString()
+                      : "No baseline yet"}
                   </span>
+                  {watchlist.last_error ? (
+                    <span className="negative">Last error: {watchlist.last_error}</span>
+                  ) : null}
                 </div>
                 <div className="watchlist-actions">
+                  <button
+                    className={watchlist.auto_refresh ? "button button--quiet monitor-button monitor-button--on" : "button button--quiet monitor-button"}
+                    onClick={() => updateMonitoring(watchlist, !watchlist.auto_refresh)}
+                  >
+                    {watchlist.auto_refresh ? "Auto On" : "Auto Off"}
+                  </button>
                   <button className="button button--quiet" onClick={() => loadEvents(watchlist.id)}>
                     History
                   </button>
