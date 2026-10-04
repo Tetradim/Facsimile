@@ -1,4 +1,7 @@
 import { useMemo, useState } from "react";
+import { BacktestPage } from "./BacktestPage";
+import { WatchlistsPage } from "./WatchlistsPage";
+import { WorkbenchChartsPage } from "./WorkbenchChartsPage";
 import {
   Activity,
   BarChart3,
@@ -44,6 +47,8 @@ type Page =
   | "value"
   | "breakout"
   | "builder"
+  | "watchlists"
+  | "backtest"
   | "charts";
 
 type Candidate = {
@@ -199,6 +204,8 @@ const navItems = [
   { id: "value" as Page, label: "Value Scanner", icon: CircleDollarSign },
   { id: "breakout" as Page, label: "Weekly Breakout", icon: TrendingUp },
   { id: "builder" as Page, label: "Scanner Builder", icon: SlidersHorizontal },
+  { id: "watchlists" as Page, label: "Watchlists", icon: Bell },
+  { id: "backtest" as Page, label: "Backtest Lab", icon: BarChart3 },
   { id: "charts" as Page, label: "Charts", icon: LineChartIcon },
 ];
 
@@ -1720,7 +1727,9 @@ export default function App() {
           {page === "value" ? <ValueScanner /> : null}
           {page === "breakout" ? <BreakoutPage /> : null}
           {page === "builder" ? <BuilderPage /> : null}
-          {page === "charts" ? <ChartsPage /> : null}
+          {page === "watchlists" ? <WatchlistsPage /> : null}
+          {page === "backtest" ? <BacktestPage /> : null}
+          {page === "charts" ? <WorkbenchChartsPage /> : null}
         </main>
       </div>
     </div>
