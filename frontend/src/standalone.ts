@@ -1,4 +1,16 @@
 import { CapacitorHttp } from "@capacitor/core";
+import {
+  buildMobileIntelligence,
+  evaluateMobileStrategy,
+  fetchSecFilings,
+  fetchStructuredCatalysts,
+  mobileStrategyFacts,
+  structuredCatalystScore,
+  type MobileIntelligence,
+  type MobileStrategy,
+  type MobileStrategyEvaluation,
+  type StructuredCatalyst,
+} from "./mobileIntelligence";
 
 export type StandaloneNews = {
   symbol: string;
@@ -39,6 +51,9 @@ export type StandaloneScanRequest = {
   max_candidates?: number;
   max_results?: number;
   include_rejected?: boolean;
+  include_structured_catalysts?: boolean;
+  strategy?: MobileStrategy | null;
+  require_strategy_match?: boolean;
 };
 
 export type StandaloneScanResponse = {
@@ -51,7 +66,7 @@ export type StandaloneScanResponse = {
   warnings: string[];
 };
 
-type OHLCVBar = {
+export type OHLCVBar = {
   timestamp: string;
   open: number;
   high: number;
@@ -88,7 +103,7 @@ type ScoreCard = {
   overall: number;
 };
 
-type BreakoutCandidate = {
+export type BreakoutCandidate = {
   schema_version: string;
   symbol: string;
   as_of: string;
@@ -108,7 +123,11 @@ export type StandaloneScanRow = {
   profile: StandaloneProfile;
   candidate: BreakoutCandidate;
   news: StandaloneNews[];
+  catalysts: StructuredCatalyst[];
   catalyst_score: number;
+  intelligence: MobileIntelligence | null;
+  strategy_evaluation: MobileStrategyEvaluation | null;
+  rank: number | null;
   data_sources: string[];
   error: string | null;
 };
@@ -938,7 +957,31 @@ export function standaloneProviderStatus(): StandaloneProvider[] {
         "Direct on-device HTTPS via Capacitor native HTTP. No PC or API key required.",
     },
     {
-      name: "Facsimile On-device Engine",
+      name: "SEC EDGAR Native",
+      kind: "filings",
+      configured: true,
+      zero_key: true,
+      capabilities: ["8-K", "10-Q", "10-K", "6-K", "S-1", "S-3", "424B5"],
+      detail: "Direct on-device SEC filing evidence for catalyst and dilution risk.",
+    },
+    {
+      name: "ClinicalTrials.gov Native",
+      kind: "catalyst",
+      configured: true,
+      zero_key: true,
+      capabilities: ["trial phase", "status", "completion dates"],
+      detail: "Structured medical catalyst evidence retrieved on-device.",
+    },
+    {
+      name: "openFDA Drugs@FDA Native",
+      kind: "catalyst",
+      configured: true,
+      zero_key: true,
+      capabilities: ["drug applications", "submission dates", "submission status"],
+      detail: "Structured FDA evidence retrieved on-device.",
+    },
+    {
+      name: "Facsimile On-device Intelligence Engine",
       kind: "scanner",
       configured: true,
       zero_key: true,
@@ -948,9 +991,14 @@ export function standaloneProviderStatus(): StandaloneProvider[] {
         "20-week MA",
         "relative volume",
         "structural risk",
-        "ranking",
+        "tier ranking",
+        "SPY relative strength",
+        "liquidity",
+        "dilution safety",
+        "explainable scores",
+        "strategy evaluation",
       ],
-      detail: "TypeScript port of the deterministic Python breakout engine.",
+      detail: "TypeScript breakout and Intelligence Workbench engine.",
     },
   ];
 }
@@ -967,6 +1015,10 @@ export async function runStandaloneWeeklyScan(
     max_candidates: Math.min(rawRequest.max_candidates ?? 35, 60),
     max_results: Math.min(rawRequest.max_results ?? 30, 60),
     include_rejected: rawRequest.include_rejected ?? true,
+    include_structured_catalysts:
+      rawRequest.include_structured_catalysts ?? true,
+    strategy: rawRequest.strategy ?? null,
+    require_strategy_match: rawRequest.require_strategy_match ?? true,
   };
   if (request.min_price > request.max_price) {
     throw new Error("Minimum price cannot exceed maximum price.");
@@ -1000,13 +1052,36 @@ export async function runStandaloneWeeklyScan(
   }
 
   const cutoff = Date.now() - request.news_lookback_days * 86_400_000;
+  let benchmarkBars: OHLCVBar[] = [];
+  try {
+    benchmarkBars = await yahooWeeklyBars("SPY");
+    warnings.push("Relative strength benchmark: SPY via Yahoo native chart.");
+  } catch (error) {
+    warnings.push(
+      error instanceof Error
+        ? `SPY benchmark unavailable: ${error.message}`
+        : "SPY benchmark unavailable.",
+    );
+  }
+
   const rows = await mapWithConcurrency(profiles, 6, async (profile) => {
     try {
-      const [bars, rawNews] = await Promise.all([
+      const isMedical = matchesRequestedSector(
+        profile.sector,
+        profile.industry,
+        "Medical",
+      );
+      const [bars, rawNews, secNews, catalysts] = await Promise.all([
         yahooWeeklyBars(profile.symbol),
         yahooNews(profile.symbol),
+        fetchSecFilings(profile.symbol),
+        request.include_structured_catalysts && isMedical
+          ? fetchStructuredCatalysts(profile.company)
+          : Promise.resolve([]),
       ]);
-      const recentNews = rawNews
+
+      const combinedNews = [...rawNews, ...secNews];
+      const recentNews = combinedNews
         .filter((item) => {
           if (!item.published_at) return true;
           return new Date(item.published_at).getTime() >= cutoff;
@@ -1017,25 +1092,59 @@ export async function runStandaloneWeeklyScan(
           ),
         );
 
+      const headlineScore = catalystScore(recentNews);
+      const registryScore = structuredCatalystScore(catalysts);
+      const combinedCatalystScore = Math.max(headlineScore, registryScore);
       const candidate = evaluateBreakout(profile.symbol, bars);
-      if (request.require_recent_news && recentNews.length === 0) {
+
+      if (
+        request.require_recent_news &&
+        recentNews.length === 0 &&
+        registryScore < 40
+      ) {
         candidate.state = "rejected";
         candidate.reasons = [
           ...candidate.reasons,
-          `No news found in the last ${request.news_lookback_days} days`,
+          `No recent news/filing or structured catalyst in the last ${request.news_lookback_days} days`,
         ];
       }
+
+      const intelligence = buildMobileIntelligence(
+        candidate,
+        bars,
+        benchmarkBars,
+        recentNews,
+        combinedCatalystScore,
+      );
+      const strategyEvaluation = request.strategy
+        ? evaluateMobileStrategy(
+            request.strategy,
+            mobileStrategyFacts(
+              profile,
+              candidate,
+              intelligence,
+              combinedCatalystScore,
+            ),
+          )
+        : null;
 
       const row: StandaloneScanRow = {
         profile,
         candidate,
         news: recentNews,
-        catalyst_score: catalystScore(recentNews),
+        catalysts,
+        catalyst_score: combinedCatalystScore,
+        intelligence,
+        strategy_evaluation: strategyEvaluation,
+        rank: null,
         data_sources: [
           profile.source,
           "yahoo_chart_native",
           "yahoo_news_native",
+          ...(secNews.length ? ["sec_edgar_native"] : []),
+          ...[...new Set(catalysts.map((item) => item.source))],
           "facsimile_ts_engine",
+          "facsimile_intelligence_ts",
         ],
         error: null,
       };
@@ -1048,24 +1157,39 @@ export async function runStandaloneWeeklyScan(
           error instanceof Error ? error.message : "standalone scan error",
         ),
         news: [],
+        catalysts: [],
         catalyst_score: 0,
+        intelligence: null,
+        strategy_evaluation: null,
+        rank: null,
         data_sources: ["facsimile_ts_engine"],
         error: error instanceof Error ? error.message : "standalone scan error",
       } satisfies StandaloneScanRow;
     }
   });
 
-  let visibleRows = rows;
-  if (!request.include_rejected) {
-    visibleRows = rows.filter((row) => row.candidate.state !== "rejected");
-  }
+  let visibleRows = rows.filter((row) => {
+    const statePass =
+      request.include_rejected || row.candidate.state !== "rejected";
+    const strategyPass =
+      !request.strategy ||
+      !request.require_strategy_match ||
+      row.strategy_evaluation?.passed === true;
+    return statePass && strategyPass;
+  });
+
   visibleRows.sort((a, b) => {
-    const aScore = a.candidate.scores?.overall ?? -1;
-    const bScore = b.candidate.scores?.overall ?? -1;
-    if (aScore !== bScore) return bScore - aScore;
-    return b.catalyst_score - a.catalyst_score;
+    const aKey = a.intelligence?.rank_key ?? [0, -1, 0, 0, -1];
+    const bKey = b.intelligence?.rank_key ?? [0, -1, 0, 0, -1];
+    for (let index = 0; index < aKey.length; index += 1) {
+      if (aKey[index] !== bKey[index]) return bKey[index] - aKey[index];
+    }
+    return 0;
   });
   visibleRows = visibleRows.slice(0, request.max_results);
+  visibleRows.forEach((row, index) => {
+    row.rank = index + 1;
+  });
 
   const errors = rows.filter((row) => row.error).length;
   if (errors) {
