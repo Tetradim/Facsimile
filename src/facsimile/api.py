@@ -3,19 +3,27 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
 
 from .breakout import WeeklyBreakoutEngine
 from .contracts import ScanEnvelope, weekly_breakout_envelope
 from .live_data import (
+    LiveChartResponse,
     LiveNewsItem,
     LiveProfile,
     LiveScanRequest,
     LiveScanResponse,
     ProviderStatus,
     get_live_data_service,
+)
+from .backtest import BacktestRequest, BacktestResponse, run_backtest
+from .watchlists import (
+    Watchlist,
+    WatchlistCreate,
+    WatchlistRefreshResponse,
+    get_watchlist_store,
 )
 from .strategy import (
     StrategyDefinition,
@@ -229,6 +237,83 @@ def live_provider_status() -> list[ProviderStatus]:
 )
 def live_profile(symbol: str) -> LiveProfile:
     return get_live_data_service().profile_for_symbol(symbol)
+
+
+@app.get(
+    "/v1/live/chart/{symbol}",
+    response_model=LiveChartResponse,
+)
+def live_chart(
+    symbol: str,
+    limit: int = 120,
+) -> LiveChartResponse:
+    return get_live_data_service().chart_for_symbol(symbol, limit)
+
+
+@app.post(
+    "/v1/backtest/weekly-breakout",
+    response_model=BacktestResponse,
+)
+def backtest_weekly_breakout(
+    request: BacktestRequest,
+) -> BacktestResponse:
+    service = get_live_data_service()
+    try:
+        benchmark = service.weekly_bars_for_symbol("SPY")
+        return run_backtest(
+            request,
+            service.weekly_bars_for_symbol,
+            benchmark,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get(
+    "/v1/watchlists",
+    response_model=list[Watchlist],
+)
+def list_watchlists() -> list[Watchlist]:
+    return get_watchlist_store().list()
+
+
+@app.post(
+    "/v1/watchlists",
+    response_model=Watchlist,
+)
+def create_watchlist(
+    request: WatchlistCreate,
+) -> Watchlist:
+    return get_watchlist_store().create(request)
+
+
+@app.delete("/v1/watchlists/{watchlist_id}")
+def delete_watchlist(
+    watchlist_id: str,
+) -> dict[str, bool]:
+    deleted = get_watchlist_store().delete(watchlist_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Watchlist not found")
+    return {"deleted": True}
+
+
+@app.post(
+    "/v1/watchlists/{watchlist_id}/refresh",
+    response_model=WatchlistRefreshResponse,
+)
+def refresh_watchlist(
+    watchlist_id: str,
+) -> WatchlistRefreshResponse:
+    try:
+        return get_watchlist_store().refresh(
+            watchlist_id,
+            get_live_data_service(),
+        )
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail="Watchlist not found",
+        ) from exc
 
 
 @app.get(
