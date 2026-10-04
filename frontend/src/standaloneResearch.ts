@@ -239,7 +239,10 @@ export async function standaloneChart(
   weeks = 104,
 ): Promise<StandaloneChartResponse> {
   const normalized = symbol.trim().toUpperCase();
-  const bars = await yahooWeeklyBars(normalized);
+  const bars = await yahooWeeklyBars(
+    normalized,
+    weeks > 104 ? "10y" : "2y",
+  );
   if (!bars.length) throw new Error("No weekly chart history returned.");
   const candidate = evaluateBreakout(normalized, bars);
   const last = bars[bars.length - 1];
