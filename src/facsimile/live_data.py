@@ -417,7 +417,7 @@ class NasdaqScreenerProvider:
         rows: list[dict[str, Any]],
         request: LiveScanRequest,
     ) -> list[LiveProfile]:
-        profiles: list[LiveProfile] = []
+        ranked: list[tuple[float, LiveProfile]] = []
         for row in rows:
             symbol = str(row.get("symbol") or "").strip().upper()
             price = cls._price(row.get("lastsale"))
@@ -431,28 +431,31 @@ class NasdaqScreenerProvider:
             if not cls._matches_sector(sector, industry, request.sector):
                 continue
 
-            profiles.append(
-                LiveProfile(
-                    symbol=symbol,
-                    company=str(row.get("name") or symbol),
-                    price=price,
-                    sector=sector,
-                    industry=industry,
-                    exchange=None,
-                    market_cap=_as_float(row.get("marketCap")),
-                    source="nasdaq_screener",
-                )
+            profile = LiveProfile(
+                symbol=symbol,
+                company=str(row.get("name") or symbol),
+                price=price,
+                sector=sector,
+                industry=industry,
+                exchange=None,
+                market_cap=_as_float(row.get("marketCap")),
+                source="nasdaq_screener",
             )
+            volume = cls._price(row.get("volume")) or 0.0
+            ranked.append((volume, profile))
 
-        profiles.sort(
-            key=lambda profile: (
-                profile.market_cap or 0.0,
-                profile.price,
-                profile.symbol,
+        ranked.sort(
+            key=lambda item: (
+                item[0],
+                item[1].market_cap or 0.0,
+                item[1].symbol,
             ),
             reverse=True,
         )
-        return profiles[: request.max_candidates]
+        return [
+            profile
+            for _, profile in ranked[: request.max_candidates]
+        ]
 
     def screen(self, request: LiveScanRequest) -> list[LiveProfile]:
         response = httpx.get(
