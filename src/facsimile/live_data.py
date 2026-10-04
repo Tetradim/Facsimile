@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from .breakout import WeeklyBreakoutEngine
+from .intelligence import CandidateIntelligence, build_candidate_intelligence
 from .models import BreakoutCandidate, BreakoutConfig, FundamentalSnapshot, OHLCVBar, VolumeMode
 from .weekly import aggregate_daily_to_weekly
 
@@ -66,6 +67,8 @@ class LiveScanRow(BaseModel):
     candidate: BreakoutCandidate
     news: list[LiveNewsItem] = Field(default_factory=list)
     catalyst_score: float = Field(default=0, ge=0, le=100)
+    intelligence: CandidateIntelligence | None = None
+    rank: int | None = Field(default=None, ge=1)
     data_sources: list[str] = Field(default_factory=list)
     error: str | None = None
 
@@ -1223,6 +1226,7 @@ class LiveDataService:
         profile_hint: LiveProfile,
         request: LiveScanRequest,
         config: BreakoutConfig,
+        benchmark_bars: list[OHLCVBar] | None,
     ) -> LiveScanRow:
         sources = [profile_hint.source]
         try:
@@ -1252,11 +1256,19 @@ class LiveDataService:
             candidate.reasons.append(
                 f"No news/filing found in the last {request.news_lookback_days} days"
             )
+            intelligence = build_candidate_intelligence(
+                candidate,
+                bars,
+                benchmark_bars,
+                [],
+                0,
+            )
             return LiveScanRow(
                 profile=profile,
                 candidate=candidate,
                 news=[],
                 catalyst_score=0,
+                intelligence=intelligence,
                 data_sources=sorted(set(sources)),
             )
 
@@ -1276,11 +1288,20 @@ class LiveDataService:
         )
         candidate.metadata["live_data_sources"] = sorted(set(sources))
         candidate.metadata["recent_news_count"] = len(recent_news)
+        catalyst_score = _catalyst_score(recent_news)
+        intelligence = build_candidate_intelligence(
+            candidate,
+            bars,
+            benchmark_bars,
+            recent_news,
+            catalyst_score,
+        )
         return LiveScanRow(
             profile=profile,
             candidate=candidate,
             news=recent_news[:8],
-            catalyst_score=_catalyst_score(recent_news),
+            catalyst_score=catalyst_score,
+            intelligence=intelligence,
             data_sources=sorted(set(sources)),
         )
 
@@ -1321,11 +1342,26 @@ class LiveDataService:
             )
 
         config = request.config or medical_breakout_config()
+        benchmark_bars: list[OHLCVBar] | None = None
+        try:
+            benchmark_bars, benchmark_source = self._weekly_bars("SPY")
+            warnings.append(
+                f"Relative strength benchmark: SPY via {benchmark_source}."
+            )
+        except Exception as exc:
+            warnings.append(f"SPY benchmark unavailable: {exc}")
+
         rows: list[LiveScanRow] = []
         workers = min(6, max(1, len(profiles)))
         with ThreadPoolExecutor(max_workers=workers) as pool:
             futures = {
-                pool.submit(self._scan_one, profile, request, config): profile
+                pool.submit(
+                    self._scan_one,
+                    profile,
+                    request,
+                    config,
+                    benchmark_bars,
+                ): profile
                 for profile in profiles[: request.max_candidates]
             }
             for future in as_completed(futures):
@@ -1338,17 +1374,21 @@ class LiveDataService:
                 if request.include_rejected or row.candidate.state.value != "rejected":
                     rows.append(row)
 
-        def rank(row: LiveScanRow) -> tuple[float, float, float]:
+        def rank(row: LiveScanRow) -> tuple[float, float, float, float, float]:
+            if row.intelligence is not None:
+                return row.intelligence.rank_key
             overall = (
                 row.candidate.scores.overall
                 if row.candidate.scores is not None
                 else 0.0
             )
             confirmed = 1.0 if row.candidate.state.value == "confirmed" else 0.0
-            return (confirmed, overall, row.catalyst_score)
+            return (confirmed, overall, row.catalyst_score, 0.0, 0.0)
 
         rows.sort(key=rank, reverse=True)
         rows = rows[: request.max_results]
+        for index, row in enumerate(rows, start=1):
+            row.rank = index
         return LiveScanResponse(
             generated_at=datetime.now(timezone.utc),
             query=request,
