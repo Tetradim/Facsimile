@@ -157,3 +157,112 @@ def medical_catalyst_weekly_strategy() -> StrategyDefinition:
 
 def default_presets() -> list[StrategyDefinition]:
     return [medical_catalyst_weekly_strategy()]
+
+
+class ConditionResult(BaseModel):
+    condition: StrategyCondition
+    passed: bool
+    actual: Any = None
+
+
+class StrategyEvaluation(BaseModel):
+    strategy_name: str
+    passed: bool
+    all_of: list[ConditionResult] = Field(default_factory=list)
+    any_of: list[ConditionResult] = Field(default_factory=list)
+    none_of: list[ConditionResult] = Field(default_factory=list)
+    failed_reasons: list[str] = Field(default_factory=list)
+
+
+def _lookup(facts: dict[str, Any], field: str) -> Any:
+    current: Any = facts
+    for part in field.split("."):
+        if not isinstance(current, dict) or part not in current:
+            return None
+        current = current[part]
+    return current
+
+
+def _condition_passes(condition: StrategyCondition, actual: Any) -> bool:
+    expected = condition.value
+    if actual is None:
+        return False
+
+    if condition.operator == FilterOperator.EQ:
+        return actual == expected
+    if condition.operator == FilterOperator.NE:
+        return actual != expected
+    if condition.operator == FilterOperator.GT:
+        return actual > expected
+    if condition.operator == FilterOperator.GTE:
+        return actual >= expected
+    if condition.operator == FilterOperator.LT:
+        return actual < expected
+    if condition.operator == FilterOperator.LTE:
+        return actual <= expected
+    if condition.operator == FilterOperator.BETWEEN:
+        if not isinstance(expected, (list, tuple)) or len(expected) != 2:
+            return False
+        return expected[0] <= actual <= expected[1]
+    if condition.operator == FilterOperator.CONTAINS:
+        return str(expected).lower() in str(actual).lower()
+    return False
+
+
+def _evaluate_group(
+    group: StrategyGroup,
+    facts: dict[str, Any],
+) -> list[ConditionResult]:
+    return [
+        ConditionResult(
+            condition=condition,
+            actual=_lookup(facts, condition.field),
+            passed=_condition_passes(
+                condition,
+                _lookup(facts, condition.field),
+            ),
+        )
+        for condition in group.conditions
+    ]
+
+
+def evaluate_strategy(
+    strategy: StrategyDefinition,
+    facts: dict[str, Any],
+) -> StrategyEvaluation:
+    all_results = _evaluate_group(strategy.all_of, facts)
+    any_results = _evaluate_group(strategy.any_of, facts)
+    none_results = _evaluate_group(strategy.none_of, facts)
+
+    all_pass = all(item.passed for item in all_results)
+    any_pass = (
+        any(item.passed for item in any_results)
+        if any_results
+        else True
+    )
+    none_pass = not any(item.passed for item in none_results)
+
+    failed: list[str] = []
+    for item in all_results:
+        if not item.passed:
+            failed.append(
+                item.condition.label
+                or f"{item.condition.field} failed ALL rule"
+            )
+    if any_results and not any_pass:
+        failed.append("No ANY condition passed")
+    for item in none_results:
+        if item.passed:
+            failed.append(
+                item.condition.label
+                or f"{item.condition.field} matched exclusion rule"
+            )
+
+    return StrategyEvaluation(
+        strategy_name=strategy.name,
+        passed=all_pass and any_pass and none_pass,
+        all_of=all_results,
+        any_of=any_results,
+        none_of=none_results,
+        failed_reasons=failed,
+    )
