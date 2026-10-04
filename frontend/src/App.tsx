@@ -1049,74 +1049,354 @@ function BreakoutPage() {
   );
 }
 
+type BuilderGroup = "all" | "any" | "none";
+
+type BuilderCondition = {
+  id: string;
+  group: BuilderGroup;
+  field: string;
+  operator: string;
+  value: string;
+  timeframe: string;
+};
+
+const defaultBuilderConditions: BuilderCondition[] = [
+  { id: "price", group: "all", field: "price", operator: "between", value: "0.10,2.50", timeframe: "current" },
+  { id: "sector", group: "all", field: "sector", operator: "contains", value: "health", timeframe: "current" },
+  { id: "technical", group: "all", field: "scores.technical", operator: "gte", value: "75", timeframe: "1w" },
+  { id: "setup", group: "all", field: "scores.setup", operator: "gte", value: "80", timeframe: "1w" },
+  { id: "rvol", group: "all", field: "volume_vs_average", operator: "gte", value: "1.5", timeframe: "1w" },
+  { id: "risk", group: "all", field: "stop_risk_pct", operator: "lte", value: "0.15", timeframe: "1w" },
+  { id: "catalyst", group: "any", field: "catalyst_score", operator: "gte", value: "70", timeframe: "current" },
+  { id: "news", group: "any", field: "recent_news_count", operator: "gte", value: "1", timeframe: "current" },
+  { id: "dilution", group: "none", field: "dilution_risk", operator: "eq", value: "extreme", timeframe: "current" },
+];
+
 function BuilderPage() {
-  const [bars, setBars] = useState("6");
-  const [width, setWidth] = useState("12");
-  const [closeAbove, setCloseAbove] = useState("1");
-  const [stopRisk, setStopRisk] = useState("20");
+  const [conditions, setConditions] = useState<BuilderCondition[]>(defaultBuilderConditions);
+  const [description, setDescription] = useState(
+    "Medical stocks between 0.10 and 2.50 with strong weekly setup, 1.5x volume, recent catalyst and no extreme dilution.",
+  );
+  const [message, setMessage] = useState("");
+  const [running, setRunning] = useState(false);
+  const [preview, setPreview] = useState<LiveScanResponse | null>(null);
+
+  function normalizedValue(condition: BuilderCondition): unknown {
+    if (condition.operator === "between") {
+      const values = condition.value.split(",").map((value) => Number(value.trim()));
+      return values.length === 2 && values.every(Number.isFinite)
+        ? values
+        : condition.value;
+    }
+    if (["gt", "gte", "lt", "lte"].includes(condition.operator)) {
+      const numeric = Number(condition.value);
+      return Number.isFinite(numeric) ? numeric : condition.value;
+    }
+    return condition.value;
+  }
+
+  function strategyPayload() {
+    const group = (name: BuilderGroup) => ({
+      mode: name,
+      conditions: conditions
+        .filter((condition) => condition.group === name)
+        .map((condition) => ({
+          field: condition.field,
+          operator: condition.operator,
+          value: normalizedValue(condition),
+          timeframe: condition.timeframe,
+        })),
+    });
+
+    return {
+      schema_version: "facsimile.strategy.v1",
+      name: "Custom Workbench Strategy",
+      description,
+      all_of: group("all"),
+      any_of: group("any"),
+      none_of: group("none"),
+      metadata: {
+        scanner_family: "weekly_breakout",
+        reusable_for: ["scan", "watchlist", "alert", "backtest"],
+      },
+    };
+  }
+
+  function updateCondition(
+    id: string,
+    key: keyof BuilderCondition,
+    value: string,
+  ) {
+    setConditions((current) =>
+      current.map((condition) =>
+        condition.id === id ? { ...condition, [key]: value } : condition,
+      ),
+    );
+  }
+
+  function addCondition(group: BuilderGroup) {
+    setConditions((current) => [
+      ...current,
+      {
+        id: "rule-" + Date.now(),
+        group,
+        field: "scores.overall",
+        operator: "gte",
+        value: "80",
+        timeframe: "current",
+      },
+    ]);
+  }
+
+  function removeCondition(id: string) {
+    setConditions((current) => current.filter((condition) => condition.id !== id));
+  }
+
+  function savePreset() {
+    const payload = strategyPayload();
+    const key = "facsimile.savedStrategies";
+    const existing = JSON.parse(localStorage.getItem(key) || "[]") as unknown[];
+    localStorage.setItem(key, JSON.stringify([...existing, payload]));
+    setMessage("Saved locally. This strategy object can be reused by scans, alerts and backtests.");
+  }
+
+  function buildRulesFromText() {
+    const text = description.toLowerCase();
+    let next = [...defaultBuilderConditions];
+
+    const priceMatch = text.match(/between\s+\$?([0-9.]+)\s+(?:and|to)\s+\$?([0-9.]+)/);
+    if (priceMatch) {
+      next = next.map((condition) =>
+        condition.id === "price"
+          ? { ...condition, value: priceMatch[1] + "," + priceMatch[2] }
+          : condition,
+      );
+    }
+
+    const rvolMatch = text.match(/(?:rvol|relative volume|volume)\s*(?:>=|at least|over)?\s*([0-9.]+)x?/);
+    if (rvolMatch) {
+      next = next.map((condition) =>
+        condition.id === "rvol" ? { ...condition, value: rvolMatch[1] } : condition,
+      );
+    }
+
+    const riskMatch = text.match(/(?:stop risk|risk)\s*(?:<=|under|below|less than)?\s*([0-9.]+)%/);
+    if (riskMatch) {
+      next = next.map((condition) =>
+        condition.id === "risk"
+          ? { ...condition, value: String(Number(riskMatch[1]) / 100) }
+          : condition,
+      );
+    }
+
+    if (text.includes("medical") || text.includes("healthcare") || text.includes("biotech")) {
+      next = next.map((condition) =>
+        condition.id === "sector" ? { ...condition, value: "health" } : condition,
+      );
+    }
+
+    setConditions(next);
+    setMessage("Rule Assistant translated the recognizable parts into deterministic filters.");
+  }
+
+  async function runCustomScan() {
+    const priceRule = conditions.find((condition) => condition.field === "price");
+    const range =
+      priceRule?.operator === "between"
+        ? priceRule.value.split(",").map((value) => Number(value.trim()))
+        : [0.10, 2.50];
+    const sectorRule = conditions.find((condition) => condition.field === "sector");
+    const newsRule = conditions.find((condition) => condition.field === "recent_news_count");
+
+    setRunning(true);
+    setMessage("");
+    try {
+      const response = await fetch("/v1/live/scan/weekly-breakout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          min_price: Number.isFinite(range[0]) ? range[0] : 0.10,
+          max_price: Number.isFinite(range[1]) ? range[1] : 2.50,
+          sector: sectorRule?.value || "Medical",
+          require_recent_news: Boolean(newsRule),
+          news_lookback_days: 14,
+          max_candidates: 50,
+          max_results: 30,
+          include_rejected: true,
+          strategy: strategyPayload(),
+          require_strategy_match: true,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      const data = (await response.json()) as LiveScanResponse;
+      setPreview(data);
+      setMessage(
+        "Custom strategy matched " +
+          data.rows.length +
+          " ranked candidates from " +
+          data.discovered_count +
+          " discovered symbols.",
+      );
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Custom scan failed.");
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  const renderGroup = (group: BuilderGroup, title: string, hint: string) => (
+    <div className={"logic-group logic-group--" + group}>
+      <div className="logic-group__header">
+        <div>
+          <strong>{title}</strong>
+          <span>{hint}</span>
+        </div>
+        <button className="text-button" onClick={() => addCondition(group)}>+ Add rule</button>
+      </div>
+      <div className="logic-rules">
+        {conditions.filter((condition) => condition.group === group).map((condition) => (
+          <div className="logic-rule" key={condition.id}>
+            <select
+              value={condition.field}
+              onChange={(event) => updateCondition(condition.id, "field", event.target.value)}
+            >
+              <option value="price">Price</option>
+              <option value="sector">Sector</option>
+              <option value="state">State</option>
+              <option value="scores.overall">Overall</option>
+              <option value="scores.technical">Technical Health</option>
+              <option value="scores.setup">Setup Quality</option>
+              <option value="scores.trigger">Breakout Trigger</option>
+              <option value="scores.relative_strength">Relative Strength</option>
+              <option value="catalyst_score">Catalyst</option>
+              <option value="scores.fundamental">Fundamental Quality</option>
+              <option value="dilution_risk">Dilution Risk</option>
+              <option value="scores.dilution_safety">Dilution Safety</option>
+              <option value="scores.liquidity">Liquidity</option>
+              <option value="scores.trade_risk">Trade Risk</option>
+              <option value="volume_vs_average">Relative Volume</option>
+              <option value="stop_risk_pct">Stop Risk</option>
+              <option value="box_bars">Box Bars</option>
+              <option value="box_width_pct">Box Width</option>
+              <option value="recent_news_count">Recent News Count</option>
+            </select>
+            <select
+              value={condition.operator}
+              onChange={(event) => updateCondition(condition.id, "operator", event.target.value)}
+            >
+              <option value="gte">≥</option>
+              <option value="lte">≤</option>
+              <option value="gt">&gt;</option>
+              <option value="lt">&lt;</option>
+              <option value="eq">=</option>
+              <option value="ne">≠</option>
+              <option value="between">Between</option>
+              <option value="contains">Contains</option>
+            </select>
+            <input
+              value={condition.value}
+              onChange={(event) => updateCondition(condition.id, "value", event.target.value)}
+            />
+            <select
+              value={condition.timeframe}
+              onChange={(event) => updateCondition(condition.id, "timeframe", event.target.value)}
+            >
+              <option value="current">Current</option>
+              <option value="1d">1D</option>
+              <option value="1w">1W</option>
+              <option value="1m">1M</option>
+              <option value="quarterly">Quarterly</option>
+            </select>
+            <button
+              className="logic-remove"
+              onClick={() => removeCondition(condition.id)}
+              aria-label="Remove rule"
+            >
+              ×
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 
   return (
     <>
       <div className="page-heading">
         <div>
-          <div className="eyebrow">TOOLS / SCANNER BUILDER</div>
-          <h1>Build Your Own Breakout</h1>
-          <p>Configure the breakout engine while preserving an explainable rule set.</p>
+          <div className="eyebrow">TOOLS / STRATEGY WORKBENCH</div>
+          <h1>Scanner Builder</h1>
+          <p>TradingView-style filtering with ChartMill-style explainable ratings and reusable deterministic rules.</p>
         </div>
-        <button className="button button--ghost">
+        <button className="button button--ghost" onClick={savePreset}>
           <Save size={16} />
-          Save Preset
+          Save Strategy
         </button>
       </div>
 
+      <Panel
+        title="Rule Assistant"
+        subtitle="Describe the scan; recognizable constraints become visible rules you can inspect and edit."
+      >
+        <div className="rule-assistant">
+          <textarea
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+            rows={3}
+          />
+          <button className="button button--quiet" onClick={buildRulesFromText}>
+            <Sparkles size={16} />
+            Build Rules
+          </button>
+        </div>
+      </Panel>
+
+      <div className="logic-builder">
+        {renderGroup("all", "ALL", "Every rule in this group must pass.")}
+        {renderGroup("any", "ANY", "At least one catalyst/context rule must pass.")}
+        {renderGroup("none", "NONE", "Any matching exclusion rule removes the candidate.")}
+      </div>
+
       <div className="builder-layout">
-        <Panel title="Core Setup" subtitle="Structure and confirmation rules">
-          <div className="builder-fields">
-            <label className="field"><span>Direction</span><select><option>Long</option><option>Short</option></select></label>
-            <label className="field"><span>Setup State</span><select><option>Confirmed breakout</option><option>Developing setup</option></select></label>
-            <label className="field"><span>Timeframe</span><select><option>Weekly</option><option>Daily</option></select></label>
-            <label className="field"><span>Minimum consolidation bars</span><input value={bars} onChange={(e) => setBars(e.target.value)} /></label>
-            <label className="field"><span>Maximum body-box width %</span><input value={width} onChange={(e) => setWidth(e.target.value)} /></label>
-            <label className="field"><span>Minimum close above box %</span><input value={closeAbove} onChange={(e) => setCloseAbove(e.target.value)} /></label>
-            <label className="field"><span>Structural stop position %</span><input defaultValue="33" /></label>
-            <label className="field"><span>Maximum stop risk %</span><input value={stopRisk} onChange={(e) => setStopRisk(e.target.value)} /></label>
-            <label className="field"><span>Minimum close location %</span><input defaultValue="75" /></label>
-            <label className="field"><span>Maximum upper wick %</span><input defaultValue="50" /></label>
-            <label className="field"><span>Volume behavior</span><select><option>Score only</option><option>Hard gate</option><option>Disabled</option></select></label>
-            <label className="field"><span>Minimum relative volume</span><input defaultValue="1.00" /></label>
-          </div>
+        <Panel
+          title="Reusable Strategy Contract"
+          subtitle="One definition can power scanning, watchlists, alerts and later historical tests."
+        >
+          <pre className="strategy-json">
+            {JSON.stringify(strategyPayload(), null, 2)}
+          </pre>
         </Panel>
 
-        <Panel title="Required Context" subtitle="Toggle confirmation gates">
-          <div className="toggle-list">
-            {[
-              ["20-week moving average", true],
-              ["Bullish MACD 12/26/9", true],
-              ["10-week high", true],
-              ["Market regime filter", true],
-              ["Relative strength", true],
-              ["Fundamental quality", false],
-              ["Piotroski ≥ 6", false],
-            ].map(([label, enabled]) => (
-              <label className="toggle-row" key={String(label)}>
-                <span>{label}</span>
-                <input type="checkbox" defaultChecked={Boolean(enabled)} />
-              </label>
-            ))}
-          </div>
+        <Panel title="Run Strategy" subtitle="Evaluate the custom rules against live candidates">
           <div className="builder-summary">
             <Gauge size={18} />
             <div>
-              <strong>Preset summary</strong>
-              <span>{bars}+ bars · ≤{width}% box · +{closeAbove}% close · ≤{stopRisk}% risk</span>
+              <strong>{conditions.length} deterministic conditions</strong>
+              <span>Tier ranking remains state-first, then intelligence quality.</span>
             </div>
           </div>
-          <button className="button button--primary button--full">
+          <button
+            className="button button--primary button--full"
+            onClick={runCustomScan}
+            disabled={running}
+          >
             <Play size={16} fill="currentColor" />
-            Run Custom Scan
+            {running ? "Running…" : "Run Custom Live Scan"}
           </button>
+          {message ? <div className="connection-status">{message}</div> : null}
         </Panel>
       </div>
+
+      {preview?.rows.length ? (
+        <Panel
+          title="Custom Strategy Matches"
+          subtitle={preview.rows.length + " candidates matched the reusable strategy definition."}
+        >
+          <IntelligenceResultsTable rows={preview.rows.slice(0, 10)} view="breakout" />
+        </Panel>
+      ) : null}
     </>
   );
 }
