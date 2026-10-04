@@ -420,6 +420,18 @@ type LiveNews = {
   source: string;
 };
 
+type StructuredCatalyst = {
+  source: string;
+  kind: string;
+  title: string;
+  score: number;
+  event_date: string | null;
+  status: string | null;
+  phase: string | null;
+  url: string;
+  summary: string;
+};
+
 type LiveScanRow = {
   profile: {
     symbol: string;
@@ -447,7 +459,36 @@ type LiveScanRow = {
     reasons: string[];
   };
   news: LiveNews[];
+  catalysts: StructuredCatalyst[];
   catalyst_score: number;
+  rank: number | null;
+  intelligence: {
+    tier: "A+" | "A" | "B" | "W1" | "W2" | "X";
+    tier_reason: string;
+    scores: {
+      technical_health: { score: number; positives: string[]; cautions: string[] };
+      setup_quality: { score: number; positives: string[]; cautions: string[] };
+      breakout_trigger: { score: number; positives: string[]; cautions: string[] };
+      relative_strength: { score: number; positives: string[]; cautions: string[] };
+      catalyst: { score: number; positives: string[]; cautions: string[] };
+      growth: { score: number; positives: string[]; cautions: string[] };
+      profitability: { score: number; positives: string[]; cautions: string[] };
+      financial_health: { score: number; positives: string[]; cautions: string[] };
+      fundamental_quality: { score: number; positives: string[]; cautions: string[] };
+      dilution_safety: { score: number; positives: string[]; cautions: string[] };
+      liquidity: { score: number; positives: string[]; cautions: string[] };
+      trade_risk: { score: number; positives: string[]; cautions: string[] };
+      overall: number;
+    };
+    facts: {
+      dilution_risk?: string;
+      recent_news_count?: number;
+      stop_risk_pct?: number | null;
+      box_bars?: number | null;
+      box_width_pct?: number | null;
+      cash_runway_years?: number | null;
+    };
+  } | null;
   data_sources: string[];
   error: string | null;
 };
@@ -473,6 +514,262 @@ function LiveStateBadge({ state }: { state: LiveScanRow["candidate"]["state"] })
   return <span className={className}>{label}</span>;
 }
 
+
+type IntelligenceView = "breakout" | "catalyst" | "fundamental" | "risk";
+
+function TierBadge({ tier }: { tier: NonNullable<LiveScanRow["intelligence"]>["tier"] }) {
+  const className =
+    tier === "A+" || tier === "A" || tier === "B"
+      ? "tier tier--confirmed"
+      : tier === "W1" || tier === "W2"
+        ? "tier tier--watch"
+        : "tier tier--reject";
+  return <span className={className}>{tier}</span>;
+}
+
+function IntelligenceCell({
+  label,
+  score,
+}: {
+  label: string;
+  score: number | undefined;
+}) {
+  return (
+    <div className="intel-cell">
+      <span>{label}</span>
+      <strong className={scoreClass(score ?? 0)}>{score?.toFixed(0) ?? "—"}</strong>
+    </div>
+  );
+}
+
+function IntelligenceResultsTable({
+  rows,
+  view,
+}: {
+  rows: LiveScanRow[];
+  view: IntelligenceView;
+}) {
+  return (
+    <div className="table-wrap">
+      <table className="scanner-table live-table intelligence-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Tier</th>
+            <th>Symbol</th>
+            <th>Price</th>
+            <th>State</th>
+            {view === "breakout" ? (
+              <>
+                <th>Overall</th>
+                <th>Technical</th>
+                <th>Setup</th>
+                <th>Trigger</th>
+                <th>RS</th>
+              </>
+            ) : null}
+            {view === "catalyst" ? (
+              <>
+                <th>Catalyst</th>
+                <th>Fundamental</th>
+                <th>Dilution Safety</th>
+                <th>Dilution Risk</th>
+                <th>Recent News</th>
+              </>
+            ) : null}
+            {view === "fundamental" ? (
+              <>
+                <th>Fundamental</th>
+                <th>Growth</th>
+                <th>Profitability</th>
+                <th>Financial Health</th>
+                <th>Cash Runway</th>
+              </>
+            ) : null}
+            {view === "risk" ? (
+              <>
+                <th>Trade Risk</th>
+                <th>Liquidity</th>
+                <th>Stop Risk</th>
+                <th>Box</th>
+                <th>Sources</th>
+              </>
+            ) : null}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => {
+            const intelligence = row.intelligence;
+            const scores = intelligence?.scores;
+            const latestNews = row.news[0];
+            const structuredCatalyst = row.catalysts?.[0];
+            return (
+              <tr key={row.profile.symbol}>
+                <td className="numeric rank-cell">{row.rank ?? "—"}</td>
+                <td>{intelligence ? <TierBadge tier={intelligence.tier} /> : "—"}</td>
+                <td>
+                  <div className="symbol-cell symbol-cell--intel">
+                    <div>
+                      <strong>{row.profile.symbol}</strong>
+                      <span>{row.profile.company}</span>
+                    </div>
+                    {intelligence ? (
+                      <details className="why-details">
+                        <summary>Why?</summary>
+                        <div className="why-panel">
+                          <strong>{intelligence.tier_reason}</strong>
+                          {[
+                            ["Technical", scores?.technical_health],
+                            ["Setup", scores?.setup_quality],
+                            ["Trigger", scores?.breakout_trigger],
+                            ["RS", scores?.relative_strength],
+                            ["Catalyst", scores?.catalyst],
+                            ["Growth", scores?.growth],
+                            ["Profitability", scores?.profitability],
+                            ["Financial Health", scores?.financial_health],
+                            ["Dilution", scores?.dilution_safety],
+                            ["Liquidity", scores?.liquidity],
+                            ["Risk", scores?.trade_risk],
+                          ].map(([name, evidence]) => {
+                            const item = evidence as
+                              | { score: number; positives: string[]; cautions: string[] }
+                              | undefined;
+                            if (!item) return null;
+                            return (
+                              <div className="why-score" key={String(name)}>
+                                <span>{String(name)} {item.score.toFixed(0)}</span>
+                                {item.positives.slice(0, 2).map((text) => (
+                                  <small className="positive" key={text}>✓ {text}</small>
+                                ))}
+                                {item.cautions.slice(0, 2).map((text) => (
+                                  <small className="negative" key={text}>⚠ {text}</small>
+                                ))}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </details>
+                    ) : null}
+                  </div>
+                </td>
+                <td className="numeric">${row.profile.price.toFixed(4)}</td>
+                <td><LiveStateBadge state={row.candidate.state} /></td>
+
+                {view === "breakout" ? (
+                  <>
+                    <td><IntelligenceCell label="" score={scores?.overall} /></td>
+                    <td><IntelligenceCell label="" score={scores?.technical_health.score} /></td>
+                    <td><IntelligenceCell label="" score={scores?.setup_quality.score} /></td>
+                    <td><IntelligenceCell label="" score={scores?.breakout_trigger.score} /></td>
+                    <td><IntelligenceCell label="" score={scores?.relative_strength.score} /></td>
+                  </>
+                ) : null}
+
+                {view === "catalyst" ? (
+                  <>
+                    <td><IntelligenceCell label="" score={scores?.catalyst.score} /></td>
+                    <td><IntelligenceCell label="" score={scores?.fundamental_quality.score} /></td>
+                    <td><IntelligenceCell label="" score={scores?.dilution_safety.score} /></td>
+                    <td>
+                      <span className={"risk-label risk-label--" + (intelligence?.facts.dilution_risk ?? "unknown")}>
+                        {(intelligence?.facts.dilution_risk ?? "unknown").toUpperCase()}
+                      </span>
+                    </td>
+                    <td className="news-cell">
+                      {structuredCatalyst ? (
+                        <>
+                          {structuredCatalyst.url ? (
+                            <a href={structuredCatalyst.url} target="_blank" rel="noreferrer">
+                              {structuredCatalyst.title}
+                            </a>
+                          ) : (
+                            <span>{structuredCatalyst.title}</span>
+                          )}
+                          <small>
+                            {structuredCatalyst.source}
+                            {structuredCatalyst.phase ? " · " + structuredCatalyst.phase : ""}
+                            {structuredCatalyst.event_date
+                              ? " · " + new Date(structuredCatalyst.event_date).toLocaleDateString()
+                              : ""}
+                          </small>
+                        </>
+                      ) : latestNews ? (
+                        <>
+                          {latestNews.url ? (
+                            <a href={latestNews.url} target="_blank" rel="noreferrer">
+                              {latestNews.title}
+                            </a>
+                          ) : (
+                            <span>{latestNews.title}</span>
+                          )}
+                          <small>
+                            {latestNews.publisher || latestNews.source}
+                            {latestNews.published_at
+                              ? " · " + new Date(latestNews.published_at).toLocaleDateString()
+                              : ""}
+                          </small>
+                        </>
+                      ) : (
+                        <span className="muted">No catalyst evidence</span>
+                      )}
+                    </td>
+                  </>
+                ) : null}
+
+                {view === "fundamental" ? (
+                  <>
+                    <td><IntelligenceCell label="" score={scores?.fundamental_quality.score} /></td>
+                    <td><IntelligenceCell label="" score={scores?.growth.score} /></td>
+                    <td><IntelligenceCell label="" score={scores?.profitability.score} /></td>
+                    <td><IntelligenceCell label="" score={scores?.financial_health.score} /></td>
+                    <td className="numeric">
+                      {intelligence?.facts.cash_runway_years != null
+                        ? intelligence.facts.cash_runway_years.toFixed(1) + "y"
+                        : "—"}
+                    </td>
+                  </>
+                ) : null}
+
+                {view === "risk" ? (
+                  <>
+                    <td><IntelligenceCell label="" score={scores?.trade_risk.score} /></td>
+                    <td><IntelligenceCell label="" score={scores?.liquidity.score} /></td>
+                    <td className="numeric">
+                      {intelligence?.facts.stop_risk_pct != null
+                        ? (intelligence.facts.stop_risk_pct * 100).toFixed(1) + "%"
+                        : "—"}
+                    </td>
+                    <td className="numeric">
+                      {intelligence?.facts.box_bars ?? "—"}w ·{" "}
+                      {intelligence?.facts.box_width_pct != null
+                        ? (intelligence.facts.box_width_pct * 100).toFixed(1) + "%"
+                        : "—"}
+                    </td>
+                    <td className="sources-cell">
+                      {row.data_sources.map((source) => <span key={source}>{source}</span>)}
+                    </td>
+                  </>
+                ) : null}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+type SavedScannerView = {
+  id: string;
+  name: string;
+  minPrice: string;
+  maxPrice: string;
+  sector: string;
+  newsDays: string;
+  requireNews: boolean;
+  columnPack: IntelligenceView;
+};
+
 function ValueScanner() {
   const [minPrice, setMinPrice] = useState("0.10");
   const [maxPrice, setMaxPrice] = useState("2.50");
@@ -480,8 +777,48 @@ function ValueScanner() {
   const [requireNews, setRequireNews] = useState(true);
   const [newsDays, setNewsDays] = useState("14");
   const [loading, setLoading] = useState(false);
+  const [view, setView] = useState<IntelligenceView>("breakout");
   const [result, setResult] = useState<LiveScanResponse | null>(null);
   const [error, setError] = useState("");
+  const [savedViews, setSavedViews] = useState<SavedScannerView[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("facsimile.savedViews") || "[]") as SavedScannerView[];
+    } catch {
+      return [];
+    }
+  });
+
+  function persistSavedViews(next: SavedScannerView[]) {
+    setSavedViews(next);
+    localStorage.setItem("facsimile.savedViews", JSON.stringify(next));
+  }
+
+  function saveCurrentView() {
+    const saved: SavedScannerView = {
+      id: String(Date.now()),
+      name: sector + " $" + minPrice + "–$" + maxPrice + " · " + newsDays + "d",
+      minPrice,
+      maxPrice,
+      sector,
+      newsDays,
+      requireNews,
+      columnPack: view,
+    };
+    persistSavedViews([saved, ...savedViews].slice(0, 12));
+  }
+
+  function applySavedView(saved: SavedScannerView) {
+    setMinPrice(saved.minPrice);
+    setMaxPrice(saved.maxPrice);
+    setSector(saved.sector);
+    setNewsDays(saved.newsDays);
+    setRequireNews(saved.requireNews);
+    setView(saved.columnPack);
+  }
+
+  function removeSavedView(id: string) {
+    persistSavedViews(savedViews.filter((saved) => saved.id !== id));
+  }
 
   async function runLiveScan() {
     setLoading(true);
@@ -534,7 +871,7 @@ function ValueScanner() {
 
       <Panel
         title="Universe + Catalyst Filters"
-        subtitle="Yahoo screens the live universe first; OHLCV and news then fall through the configured provider stack."
+        subtitle="Nasdaq screens the zero-key universe first; Yahoo supplies OHLCV/news and acts as the universe fallback."
       >
         <div className="filter-grid">
           <label className="field">
@@ -602,17 +939,48 @@ function ValueScanner() {
             <Sparkles size={16} />
             Medical Catalyst preset: 18% box · +2% breakout · 1.5× volume · ≤15% stop risk
           </div>
-          <button
-            className="button button--primary button--scan"
-            onClick={runLiveScan}
-            disabled={loading}
-          >
-            <Play size={16} fill="currentColor" />
-            {loading ? "Scanning Live…" : "Run Live Scan"}
-          </button>
+          <div className="scan-action-buttons">
+            <button className="button button--ghost" onClick={saveCurrentView}>
+              <Save size={16} />
+              Save View
+            </button>
+            <button
+              className="button button--primary button--scan"
+              onClick={runLiveScan}
+              disabled={loading}
+            >
+              <Play size={16} fill="currentColor" />
+              {loading ? "Scanning Live…" : "Run Live Scan"}
+            </button>
+          </div>
         </div>
         {error ? <div className="live-error">{error}</div> : null}
       </Panel>
+
+      {savedViews.length ? (
+        <Panel
+          title="Saved Screens"
+          subtitle="TradingView-style reusable filter and column-layout presets stored on this device."
+        >
+          <div className="saved-view-row">
+            {savedViews.map((saved) => (
+              <div className="saved-view-chip" key={saved.id}>
+                <button onClick={() => applySavedView(saved)}>
+                  <strong>{saved.name}</strong>
+                  <span>{saved.columnPack} view</span>
+                </button>
+                <button
+                  className="saved-view-remove"
+                  onClick={() => removeSavedView(saved.id)}
+                  aria-label={"Remove " + saved.name}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        </Panel>
+      ) : null}
 
       <div className="metrics-grid metrics-grid--compact">
         <MetricCard
@@ -649,7 +1017,7 @@ function ValueScanner() {
       {result ? (
         <Panel
           title="Provider Status"
-          subtitle="Green sources are active on this machine. Add API keys to enable additional fallbacks."
+          subtitle="Green sources are active for this data mode. Add API keys to enable additional fallbacks."
         >
           <div className="provider-grid">
             {result.providers.map((provider) => (
@@ -679,74 +1047,25 @@ function ValueScanner() {
             Screening the universe, retrieving news and filings, downloading weekly history, and scoring candidates…
           </div>
         ) : rows.length ? (
-          <div className="table-wrap">
-            <table className="scanner-table live-table">
-              <thead>
-                <tr>
-                  <th>Symbol</th>
-                  <th>Live Price</th>
-                  <th>Sector / Industry</th>
-                  <th>State</th>
-                  <th>Overall</th>
-                  <th>Breakout</th>
-                  <th>Risk</th>
-                  <th>Catalyst</th>
-                  <th>Recent News</th>
-                  <th>Sources</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row) => {
-                  const scores = row.candidate.scores;
-                  const latestNews = row.news[0];
-                  return (
-                    <tr key={row.profile.symbol}>
-                      <td>
-                        <div className="symbol-cell">
-                          <div>
-                            <strong>{row.profile.symbol}</strong>
-                            <span>{row.profile.company}</span>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="numeric">${row.profile.price.toFixed(4)}</td>
-                      <td>
-                        <div className="taxonomy-cell">
-                          <span>{row.profile.sector || "—"}</span>
-                          <small>{row.profile.industry || row.profile.exchange || "—"}</small>
-                        </div>
-                      </td>
-                      <td><LiveStateBadge state={row.candidate.state} /></td>
-                      <td><span className={scoreClass(scores?.overall ?? 0)}>{scores?.overall?.toFixed(0) ?? "—"}</span></td>
-                      <td><span className={scoreClass(scores?.breakout ?? 0)}>{scores?.breakout?.toFixed(0) ?? "—"}</span></td>
-                      <td><span className={scoreClass(scores?.risk ?? 0)}>{scores?.risk?.toFixed(0) ?? "—"}</span></td>
-                      <td><span className={scoreClass(row.catalyst_score)}>{row.catalyst_score.toFixed(0)}</span></td>
-                      <td className="news-cell">
-                        {latestNews ? (
-                          <>
-                            {latestNews.url ? (
-                              <a href={latestNews.url} target="_blank" rel="noreferrer">{latestNews.title}</a>
-                            ) : (
-                              <span>{latestNews.title}</span>
-                            )}
-                            <small>
-                              {latestNews.publisher || latestNews.source}
-                              {latestNews.published_at ? ` · ${new Date(latestNews.published_at).toLocaleDateString()}` : ""}
-                            </small>
-                          </>
-                        ) : (
-                          <span className="muted">No recent item</span>
-                        )}
-                      </td>
-                      <td className="sources-cell">
-                        {row.data_sources.map((source) => <span key={source}>{source}</span>)}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <>
+            <div className="column-pack-tabs">
+              {[
+                ["breakout", "Breakout View"],
+                ["catalyst", "Catalyst View"],
+                ["fundamental", "Fundamental View"],
+                ["risk", "Risk View"],
+              ].map(([id, label]) => (
+                <button
+                  key={id}
+                  className={view === id ? "active" : ""}
+                  onClick={() => setView(id as IntelligenceView)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <IntelligenceResultsTable rows={rows} view={view} />
+          </>
         ) : (
           <div className="empty-live-state">
             <Radar size={24} />
@@ -875,74 +1194,358 @@ function BreakoutPage() {
   );
 }
 
+type BuilderGroup = "all" | "any" | "none";
+
+type BuilderCondition = {
+  id: string;
+  group: BuilderGroup;
+  field: string;
+  operator: string;
+  value: string;
+  timeframe: string;
+};
+
+const defaultBuilderConditions: BuilderCondition[] = [
+  { id: "price", group: "all", field: "price", operator: "between", value: "0.10,2.50", timeframe: "current" },
+  { id: "sector", group: "all", field: "sector", operator: "contains", value: "health", timeframe: "current" },
+  { id: "technical", group: "all", field: "scores.technical", operator: "gte", value: "75", timeframe: "1w" },
+  { id: "setup", group: "all", field: "scores.setup", operator: "gte", value: "80", timeframe: "1w" },
+  { id: "rvol", group: "all", field: "volume_vs_average", operator: "gte", value: "1.5", timeframe: "1w" },
+  { id: "risk", group: "all", field: "stop_risk_pct", operator: "lte", value: "0.15", timeframe: "1w" },
+  { id: "catalyst", group: "any", field: "catalyst_score", operator: "gte", value: "70", timeframe: "current" },
+  { id: "news", group: "any", field: "recent_news_count", operator: "gte", value: "1", timeframe: "current" },
+  { id: "dilution", group: "none", field: "dilution_risk", operator: "eq", value: "extreme", timeframe: "current" },
+];
+
 function BuilderPage() {
-  const [bars, setBars] = useState("6");
-  const [width, setWidth] = useState("12");
-  const [closeAbove, setCloseAbove] = useState("1");
-  const [stopRisk, setStopRisk] = useState("20");
+  const [conditions, setConditions] = useState<BuilderCondition[]>(defaultBuilderConditions);
+  const [description, setDescription] = useState(
+    "Medical stocks between 0.10 and 2.50 with strong weekly setup, 1.5x volume, recent catalyst and no extreme dilution.",
+  );
+  const [message, setMessage] = useState("");
+  const [running, setRunning] = useState(false);
+  const [preview, setPreview] = useState<LiveScanResponse | null>(null);
+
+  function normalizedValue(condition: BuilderCondition): unknown {
+    if (condition.operator === "between") {
+      const values = condition.value.split(",").map((value) => Number(value.trim()));
+      return values.length === 2 && values.every(Number.isFinite)
+        ? values
+        : condition.value;
+    }
+    if (["gt", "gte", "lt", "lte"].includes(condition.operator)) {
+      const numeric = Number(condition.value);
+      return Number.isFinite(numeric) ? numeric : condition.value;
+    }
+    return condition.value;
+  }
+
+  function strategyPayload() {
+    const group = (name: BuilderGroup) => ({
+      mode: name,
+      conditions: conditions
+        .filter((condition) => condition.group === name)
+        .map((condition) => ({
+          field: condition.field,
+          operator: condition.operator,
+          value: normalizedValue(condition),
+          timeframe: condition.timeframe,
+        })),
+    });
+
+    return {
+      schema_version: "facsimile.strategy.v1",
+      name: "Custom Workbench Strategy",
+      description,
+      all_of: group("all"),
+      any_of: group("any"),
+      none_of: group("none"),
+      metadata: {
+        scanner_family: "weekly_breakout",
+        reusable_for: ["scan", "watchlist", "alert", "backtest"],
+      },
+    };
+  }
+
+  function updateCondition(
+    id: string,
+    key: keyof BuilderCondition,
+    value: string,
+  ) {
+    setConditions((current) =>
+      current.map((condition) =>
+        condition.id === id ? { ...condition, [key]: value } : condition,
+      ),
+    );
+  }
+
+  function addCondition(group: BuilderGroup) {
+    setConditions((current) => [
+      ...current,
+      {
+        id: "rule-" + Date.now(),
+        group,
+        field: "scores.overall",
+        operator: "gte",
+        value: "80",
+        timeframe: "current",
+      },
+    ]);
+  }
+
+  function removeCondition(id: string) {
+    setConditions((current) => current.filter((condition) => condition.id !== id));
+  }
+
+  function savePreset() {
+    const payload = strategyPayload();
+    const key = "facsimile.savedStrategies";
+    const existing = JSON.parse(localStorage.getItem(key) || "[]") as unknown[];
+    localStorage.setItem(key, JSON.stringify([...existing, payload]));
+    setMessage("Saved locally. This strategy object can be reused by scans, alerts and backtests.");
+  }
+
+  function buildRulesFromText() {
+    const text = description.toLowerCase();
+    let next = [...defaultBuilderConditions];
+
+    const priceMatch = text.match(/between\s+\$?([0-9.]+)\s+(?:and|to)\s+\$?([0-9.]+)/);
+    if (priceMatch) {
+      next = next.map((condition) =>
+        condition.id === "price"
+          ? { ...condition, value: priceMatch[1] + "," + priceMatch[2] }
+          : condition,
+      );
+    }
+
+    const rvolMatch = text.match(/(?:rvol|relative volume|volume)\s*(?:>=|at least|over)?\s*([0-9.]+)x?/);
+    if (rvolMatch) {
+      next = next.map((condition) =>
+        condition.id === "rvol" ? { ...condition, value: rvolMatch[1] } : condition,
+      );
+    }
+
+    const riskMatch = text.match(/(?:stop risk|risk)\s*(?:<=|under|below|less than)?\s*([0-9.]+)%/);
+    if (riskMatch) {
+      next = next.map((condition) =>
+        condition.id === "risk"
+          ? { ...condition, value: String(Number(riskMatch[1]) / 100) }
+          : condition,
+      );
+    }
+
+    if (text.includes("medical") || text.includes("healthcare") || text.includes("biotech")) {
+      next = next.map((condition) =>
+        condition.id === "sector" ? { ...condition, value: "health" } : condition,
+      );
+    }
+
+    setConditions(next);
+    setMessage("Rule Assistant translated the recognizable parts into deterministic filters.");
+  }
+
+  async function runCustomScan() {
+    const priceRule = conditions.find((condition) => condition.field === "price");
+    const range =
+      priceRule?.operator === "between"
+        ? priceRule.value.split(",").map((value) => Number(value.trim()))
+        : [0.10, 2.50];
+    const sectorRule = conditions.find((condition) => condition.field === "sector");
+    const newsRule = conditions.find((condition) => condition.field === "recent_news_count");
+
+    setRunning(true);
+    setMessage("");
+    try {
+      const response = await apiFetch("/v1/live/scan/weekly-breakout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          min_price: Number.isFinite(range[0]) ? range[0] : 0.10,
+          max_price: Number.isFinite(range[1]) ? range[1] : 2.50,
+          sector: sectorRule?.value || "Medical",
+          require_recent_news: Boolean(newsRule),
+          news_lookback_days: 14,
+          max_candidates: 50,
+          max_results: 30,
+          include_rejected: true,
+          strategy: strategyPayload(),
+          require_strategy_match: true,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      const data = (await response.json()) as LiveScanResponse;
+      setPreview(data);
+      setMessage(
+        "Custom strategy matched " +
+          data.rows.length +
+          " ranked candidates from " +
+          data.discovered_count +
+          " discovered symbols.",
+      );
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Custom scan failed.");
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  const renderGroup = (group: BuilderGroup, title: string, hint: string) => (
+    <div className={"logic-group logic-group--" + group}>
+      <div className="logic-group__header">
+        <div>
+          <strong>{title}</strong>
+          <span>{hint}</span>
+        </div>
+        <button className="text-button" onClick={() => addCondition(group)}>+ Add rule</button>
+      </div>
+      <div className="logic-rules">
+        {conditions.filter((condition) => condition.group === group).map((condition) => (
+          <div className="logic-rule" key={condition.id}>
+            <select
+              value={condition.field}
+              onChange={(event) => updateCondition(condition.id, "field", event.target.value)}
+            >
+              <option value="price">Price</option>
+              <option value="sector">Sector</option>
+              <option value="state">State</option>
+              <option value="scores.overall">Overall</option>
+              <option value="scores.technical">Technical Health</option>
+              <option value="scores.setup">Setup Quality</option>
+              <option value="scores.trigger">Breakout Trigger</option>
+              <option value="scores.relative_strength">Relative Strength</option>
+              <option value="catalyst_score">Catalyst</option>
+              <option value="scores.fundamental">Fundamental Quality</option>
+              <option value="scores.growth">Growth</option>
+              <option value="scores.profitability">Profitability</option>
+              <option value="scores.financial_health">Financial Health</option>
+              <option value="cash_runway_years">Cash Runway Years</option>
+              <option value="dilution_risk">Dilution Risk</option>
+              <option value="scores.dilution_safety">Dilution Safety</option>
+              <option value="scores.liquidity">Liquidity</option>
+              <option value="scores.trade_risk">Trade Risk</option>
+              <option value="volume_vs_average">Relative Volume</option>
+              <option value="stop_risk_pct">Stop Risk</option>
+              <option value="box_bars">Box Bars</option>
+              <option value="box_width_pct">Box Width</option>
+              <option value="recent_news_count">Recent News Count</option>
+            </select>
+            <select
+              value={condition.operator}
+              onChange={(event) => updateCondition(condition.id, "operator", event.target.value)}
+            >
+              <option value="gte">≥</option>
+              <option value="lte">≤</option>
+              <option value="gt">&gt;</option>
+              <option value="lt">&lt;</option>
+              <option value="eq">=</option>
+              <option value="ne">≠</option>
+              <option value="between">Between</option>
+              <option value="contains">Contains</option>
+            </select>
+            <input
+              value={condition.value}
+              onChange={(event) => updateCondition(condition.id, "value", event.target.value)}
+            />
+            <select
+              value={condition.timeframe}
+              onChange={(event) => updateCondition(condition.id, "timeframe", event.target.value)}
+            >
+              <option value="current">Current</option>
+              <option value="1d">1D</option>
+              <option value="1w">1W</option>
+              <option value="1m">1M</option>
+              <option value="quarterly">Quarterly</option>
+            </select>
+            <button
+              className="logic-remove"
+              onClick={() => removeCondition(condition.id)}
+              aria-label="Remove rule"
+            >
+              ×
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 
   return (
     <>
       <div className="page-heading">
         <div>
-          <div className="eyebrow">TOOLS / SCANNER BUILDER</div>
-          <h1>Build Your Own Breakout</h1>
-          <p>Configure the breakout engine while preserving an explainable rule set.</p>
+          <div className="eyebrow">TOOLS / STRATEGY WORKBENCH</div>
+          <h1>Scanner Builder</h1>
+          <p>TradingView-style filtering with ChartMill-style explainable ratings and reusable deterministic rules.</p>
         </div>
-        <button className="button button--ghost">
+        <button className="button button--ghost" onClick={savePreset}>
           <Save size={16} />
-          Save Preset
+          Save Strategy
         </button>
       </div>
 
+      <Panel
+        title="Rule Assistant"
+        subtitle="Describe the scan; recognizable constraints become visible rules you can inspect and edit."
+      >
+        <div className="rule-assistant">
+          <textarea
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+            rows={3}
+          />
+          <button className="button button--quiet" onClick={buildRulesFromText}>
+            <Sparkles size={16} />
+            Build Rules
+          </button>
+        </div>
+      </Panel>
+
+      <div className="logic-builder">
+        {renderGroup("all", "ALL", "Every rule in this group must pass.")}
+        {renderGroup("any", "ANY", "At least one catalyst/context rule must pass.")}
+        {renderGroup("none", "NONE", "Any matching exclusion rule removes the candidate.")}
+      </div>
+
       <div className="builder-layout">
-        <Panel title="Core Setup" subtitle="Structure and confirmation rules">
-          <div className="builder-fields">
-            <label className="field"><span>Direction</span><select><option>Long</option><option>Short</option></select></label>
-            <label className="field"><span>Setup State</span><select><option>Confirmed breakout</option><option>Developing setup</option></select></label>
-            <label className="field"><span>Timeframe</span><select><option>Weekly</option><option>Daily</option></select></label>
-            <label className="field"><span>Minimum consolidation bars</span><input value={bars} onChange={(e) => setBars(e.target.value)} /></label>
-            <label className="field"><span>Maximum body-box width %</span><input value={width} onChange={(e) => setWidth(e.target.value)} /></label>
-            <label className="field"><span>Minimum close above box %</span><input value={closeAbove} onChange={(e) => setCloseAbove(e.target.value)} /></label>
-            <label className="field"><span>Structural stop position %</span><input defaultValue="33" /></label>
-            <label className="field"><span>Maximum stop risk %</span><input value={stopRisk} onChange={(e) => setStopRisk(e.target.value)} /></label>
-            <label className="field"><span>Minimum close location %</span><input defaultValue="75" /></label>
-            <label className="field"><span>Maximum upper wick %</span><input defaultValue="50" /></label>
-            <label className="field"><span>Volume behavior</span><select><option>Score only</option><option>Hard gate</option><option>Disabled</option></select></label>
-            <label className="field"><span>Minimum relative volume</span><input defaultValue="1.00" /></label>
-          </div>
+        <Panel
+          title="Reusable Strategy Contract"
+          subtitle="One definition can power scanning, watchlists, alerts and later historical tests."
+        >
+          <pre className="strategy-json">
+            {JSON.stringify(strategyPayload(), null, 2)}
+          </pre>
         </Panel>
 
-        <Panel title="Required Context" subtitle="Toggle confirmation gates">
-          <div className="toggle-list">
-            {[
-              ["20-week moving average", true],
-              ["Bullish MACD 12/26/9", true],
-              ["10-week high", true],
-              ["Market regime filter", true],
-              ["Relative strength", true],
-              ["Fundamental quality", false],
-              ["Piotroski ≥ 6", false],
-            ].map(([label, enabled]) => (
-              <label className="toggle-row" key={String(label)}>
-                <span>{label}</span>
-                <input type="checkbox" defaultChecked={Boolean(enabled)} />
-              </label>
-            ))}
-          </div>
+        <Panel title="Run Strategy" subtitle="Evaluate the custom rules against live candidates">
           <div className="builder-summary">
             <Gauge size={18} />
             <div>
-              <strong>Preset summary</strong>
-              <span>{bars}+ bars · ≤{width}% box · +{closeAbove}% close · ≤{stopRisk}% risk</span>
+              <strong>{conditions.length} deterministic conditions</strong>
+              <span>Tier ranking remains state-first, then intelligence quality.</span>
             </div>
           </div>
-          <button className="button button--primary button--full">
+          <button
+            className="button button--primary button--full"
+            onClick={runCustomScan}
+            disabled={running}
+          >
             <Play size={16} fill="currentColor" />
-            Run Custom Scan
+            {running ? "Running…" : "Run Custom Live Scan"}
           </button>
+          {message ? <div className="connection-status">{message}</div> : null}
         </Panel>
       </div>
+
+      {preview?.rows.length ? (
+        <Panel
+          title="Custom Strategy Matches"
+          subtitle={preview.rows.length + " candidates matched the reusable strategy definition."}
+        >
+          <IntelligenceResultsTable rows={preview.rows.slice(0, 10)} view="breakout" />
+        </Panel>
+      ) : null}
     </>
   );
 }
@@ -1029,7 +1632,6 @@ function ChartsPage() {
     </>
   );
 }
-
 
 function SettingsPage() {
   const [mode, setMode] = useState<MobileMode>(getMobileMode());
@@ -1205,8 +1807,13 @@ function SettingsPage() {
               "MACD 12/26/9 confirmation",
               "Relative-volume hard gate",
               "Structural stop/risk calculation",
-              "Breakout, risk, momentum, entry and overall scoring",
-              "Catalyst scoring and result ranking",
+              "A+/A/B/W1/W2/X tier ranking",
+              "SPY relative-strength scoring",
+              "ClinicalTrials.gov and openFDA catalyst evidence",
+              "SEC filing / dilution-risk evidence",
+              "Liquidity and structural-risk scoring",
+              "Explainable Intelligence Workbench ratings",
+              "Reusable ALL / ANY / NONE strategy rules",
             ].map((item) => (
               <div className="gate-item" key={item}>
                 <span className="gate-check">✓</span>
@@ -1295,7 +1902,7 @@ export default function App() {
             <div className="market-state">
               <span className="live-dot" />
               <strong>MARKET OPEN</strong>
-              <span>{isNativeApp() ? (getMobileMode() === "standalone" ? "Standalone Android" : "Android remote") : "Live data workstation"}</span>
+              <span>{isNativeApp() ? (getMobileMode() === "standalone" ? "Standalone Intelligence" : "Android remote") : "Live data workstation"}</span>
             </div>
           </div>
           <div className="topbar-actions">
