@@ -40,8 +40,14 @@ class FundamentalSnapshot(BaseModel):
     revenue_growth: float | None = None
     earnings_growth: float | None = None
     operating_margin: float | None = None
+    gross_margin: float | None = None
     return_on_equity: float | None = None
     debt_to_equity: float | None = None
+    current_ratio: float | None = None
+    total_cash: float | None = None
+    total_debt: float | None = None
+    operating_cashflow: float | None = None
+    free_cashflow: float | None = None
     piotroski_f_score: int | None = Field(default=None, ge=0, le=9)
 
 
