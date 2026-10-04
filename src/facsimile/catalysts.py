@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
+from threading import Lock
 from typing import Any
 
 import httpx
@@ -277,19 +279,38 @@ class StructuredCatalystService:
     def __init__(self) -> None:
         self.clinical_trials = ClinicalTrialsProvider()
         self.open_fda = OpenFdaDrugsProvider()
+        self._cache: dict[
+            str,
+            tuple[datetime, list[CatalystEvidence], list[str]],
+        ] = {}
+        self._cache_lock = Lock()
+        self.cache_ttl = timedelta(minutes=30)
 
     def evidence_for_company(
         self,
         company: str,
     ) -> tuple[list[CatalystEvidence], list[str]]:
+        key = _company_query_name(company).lower()
+        now = datetime.now(timezone.utc)
+        with self._cache_lock:
+            cached = self._cache.get(key)
+            if cached is not None and now - cached[0] <= self.cache_ttl:
+                return list(cached[1]), list(cached[2])
+
         evidence: list[CatalystEvidence] = []
         warnings: list[str] = []
+        providers = (self.clinical_trials, self.open_fda)
 
-        for provider in (self.clinical_trials, self.open_fda):
-            try:
-                evidence.extend(provider.evidence_for_company(company))
-            except Exception as exc:
-                warnings.append(f"{provider.name}: {exc}")
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = {
+                pool.submit(provider.evidence_for_company, company): provider
+                for provider in providers
+            }
+            for future, provider in futures.items():
+                try:
+                    evidence.extend(future.result())
+                except Exception as exc:
+                    warnings.append(f"{provider.name}: {exc}")
 
         deduped: dict[tuple[str, str, str], CatalystEvidence] = {}
         for item in evidence:
@@ -310,7 +331,10 @@ class StructuredCatalystService:
             ),
             reverse=True,
         )
-        return ordered[:12], warnings
+        result = ordered[:12]
+        with self._cache_lock:
+            self._cache[key] = (now, list(result), list(warnings))
+        return result, warnings
 
 
 def structured_catalyst_score(
