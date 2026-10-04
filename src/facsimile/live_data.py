@@ -361,6 +361,129 @@ class YahooProvider:
         return results
 
 
+class NasdaqScreenerProvider:
+    name = "Nasdaq Screener"
+    URL = "https://api.nasdaq.com/api/screener/stocks"
+
+    @staticmethod
+    def _price(value: Any) -> float | None:
+        if value is None:
+            return None
+        return _as_float(str(value).replace("$", "").replace(",", "").strip())
+
+    @staticmethod
+    def _matches_sector(
+        sector: str | None,
+        industry: str | None,
+        requested: str,
+    ) -> bool:
+        wanted = requested.strip().lower()
+        if not wanted or wanted in {"all", "all sectors"}:
+            return True
+
+        sector_text = (sector or "").lower()
+        industry_text = (industry or "").lower()
+
+        if wanted in {
+            "medical",
+            "health",
+            "health care",
+            "healthcare",
+            "biotech",
+            "biotechnology",
+            "pharmaceuticals",
+            "pharma",
+        }:
+            return (
+                "health" in sector_text
+                or any(
+                    term in industry_text
+                    for term in (
+                        "biotech",
+                        "pharma",
+                        "medical",
+                        "diagnostic",
+                        "drug",
+                        "life science",
+                    )
+                )
+            )
+
+        return wanted in sector_text or wanted in industry_text
+
+    @classmethod
+    def profiles_from_rows(
+        cls,
+        rows: list[dict[str, Any]],
+        request: LiveScanRequest,
+    ) -> list[LiveProfile]:
+        profiles: list[LiveProfile] = []
+        for row in rows:
+            symbol = str(row.get("symbol") or "").strip().upper()
+            price = cls._price(row.get("lastsale"))
+            sector = str(row.get("sector") or "").strip() or None
+            industry = str(row.get("industry") or "").strip() or None
+
+            if not symbol or price is None or price <= 0:
+                continue
+            if not request.min_price <= price <= request.max_price:
+                continue
+            if not cls._matches_sector(sector, industry, request.sector):
+                continue
+
+            profiles.append(
+                LiveProfile(
+                    symbol=symbol,
+                    company=str(row.get("name") or symbol),
+                    price=price,
+                    sector=sector,
+                    industry=industry,
+                    exchange=None,
+                    market_cap=_as_float(row.get("marketCap")),
+                    source="nasdaq_screener",
+                )
+            )
+
+        profiles.sort(
+            key=lambda profile: (
+                profile.market_cap or 0.0,
+                profile.price,
+                profile.symbol,
+            ),
+            reverse=True,
+        )
+        return profiles[: request.max_candidates]
+
+    def screen(self, request: LiveScanRequest) -> list[LiveProfile]:
+        response = httpx.get(
+            self.URL,
+            params={
+                "tableonly": "true",
+                "limit": 10000,
+                "offset": 0,
+                "download": "true",
+            },
+            headers={
+                "Accept": "application/json,text/plain,*/*",
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 Chrome/131 Safari/537.36"
+                ),
+                "Origin": "https://www.nasdaq.com",
+                "Referer": "https://www.nasdaq.com/market-activity/stocks/screener",
+            },
+            timeout=25,
+            follow_redirects=True,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        data = payload.get("data") if isinstance(payload, dict) else None
+        rows = data.get("rows", []) if isinstance(data, dict) else []
+        if not isinstance(rows, list):
+            return []
+        return self.profiles_from_rows(rows, request)
+
+
 class NasdaqDirectoryProvider:
     name = "Nasdaq Trader"
     NASDAQ_URL = "https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqlisted.txt"
@@ -908,6 +1031,7 @@ class EodhdProvider(RestProvider):
 class LiveDataService:
     def __init__(self) -> None:
         self.yahoo = YahooProvider()
+        self.nasdaq_screener = NasdaqScreenerProvider()
         self.nasdaq = NasdaqDirectoryProvider()
         self.sec = SecEdgarProvider()
         self.alpha = AlphaVantageProvider()
@@ -921,12 +1045,26 @@ class LiveDataService:
     def provider_status(self) -> list[ProviderStatus]:
         return [
             ProviderStatus(
+                name=self.nasdaq_screener.name,
+                kind="universe",
+                configured=True,
+                zero_key=True,
+                capabilities=[
+                    "stock universe",
+                    "current screener price",
+                    "sector",
+                    "industry",
+                    "market cap",
+                ],
+                detail="Primary zero-key universe source for desktop live scans.",
+            ),
+            ProviderStatus(
                 name="Yahoo Finance / yfinance",
                 kind="market+profile+news",
                 configured=True,
                 zero_key=True,
-                capabilities=["screen", "quote", "ohlcv", "profile", "fundamentals", "news"],
-                detail="Primary zero-key live test provider.",
+                capabilities=["screen fallback", "quote", "ohlcv", "profile", "fundamentals", "news"],
+                detail="Zero-key market/news source and universe fallback.",
             ),
             ProviderStatus(
                 name="Nasdaq Trader",
@@ -934,7 +1072,7 @@ class LiveDataService:
                 configured=True,
                 zero_key=True,
                 capabilities=["listed-symbol universe", "exchange metadata"],
-                detail="Fallback U.S. listed-symbol directory.",
+                detail="Independent U.S. listed-symbol directory and exchange metadata.",
             ),
             ProviderStatus(
                 name="SEC EDGAR",
@@ -1148,15 +1286,26 @@ class LiveDataService:
             raise ValueError("max_price must be >= min_price")
 
         warnings: list[str] = []
+        profiles: list[LiveProfile] = []
+
         try:
-            profiles = self.yahoo.screen(request)
+            profiles = self.nasdaq_screener.screen(request)
         except Exception as exc:
-            profiles = []
-            warnings.append(f"Yahoo screener unavailable: {exc}")
+            warnings.append(f"Nasdaq screener unavailable: {exc}")
+
+        if not profiles:
+            try:
+                profiles = self.yahoo.screen(request)
+                if profiles:
+                    warnings.append(
+                        "Nasdaq returned no usable candidates; Yahoo screener fallback was used."
+                    )
+            except Exception as exc:
+                warnings.append(f"Yahoo screener unavailable: {exc}")
 
         if not profiles:
             warnings.append(
-                "No screener candidates were returned. Check connectivity or broaden the filters."
+                "No universe candidates were returned. Check connectivity or broaden the filters."
             )
             return LiveScanResponse(
                 generated_at=datetime.now(timezone.utc),
