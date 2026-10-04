@@ -717,6 +717,182 @@ class FinnhubProvider(RestProvider):
         return [item for item in items if item.title]
 
 
+class FmpProvider(RestProvider):
+    def __init__(self) -> None:
+        super().__init__("Financial Modeling Prep", "FMP_API_KEY")
+
+    def daily_bars(self, symbol: str) -> list[OHLCVBar]:
+        if not self.api_key:
+            return []
+        response = httpx.get(
+            "https://financialmodelingprep.com/stable/historical-price-eod/full",
+            params={"symbol": symbol, "apikey": self.api_key},
+            timeout=20,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        rows = payload.get("historical", []) if isinstance(payload, dict) else payload
+        bars: list[OHLCVBar] = []
+        for row in rows or []:
+            timestamp = _parse_datetime(row.get("date"))
+            if timestamp is None:
+                continue
+            try:
+                bars.append(
+                    OHLCVBar(
+                        timestamp=timestamp,
+                        open=float(row["open"]),
+                        high=float(row["high"]),
+                        low=float(row["low"]),
+                        close=float(row["close"]),
+                        volume=float(row.get("volume") or 0),
+                    )
+                )
+            except (KeyError, TypeError, ValueError):
+                continue
+        return sorted(bars, key=lambda bar: bar.timestamp)
+
+
+class TiingoProvider(RestProvider):
+    def __init__(self) -> None:
+        super().__init__("Tiingo", "TIINGO_API_KEY")
+
+    def weekly_bars(self, symbol: str) -> list[OHLCVBar]:
+        if not self.api_key:
+            return []
+        start = (datetime.now(timezone.utc).date() - timedelta(days=730)).isoformat()
+        response = httpx.get(
+            f"https://api.tiingo.com/tiingo/daily/{symbol}/prices",
+            params={
+                "startDate": start,
+                "resampleFreq": "weekly",
+                "token": self.api_key,
+            },
+            timeout=20,
+        )
+        response.raise_for_status()
+        bars: list[OHLCVBar] = []
+        for row in response.json() or []:
+            timestamp = _parse_datetime(row.get("date"))
+            if timestamp is None:
+                continue
+            try:
+                bars.append(
+                    OHLCVBar(
+                        timestamp=timestamp,
+                        open=float(row["open"]),
+                        high=float(row["high"]),
+                        low=float(row["low"]),
+                        close=float(row["close"]),
+                        volume=float(row.get("volume") or 0),
+                    )
+                )
+            except (KeyError, TypeError, ValueError):
+                continue
+        return sorted(bars, key=lambda bar: bar.timestamp)
+
+    def news(self, symbol: str, limit: int = 12) -> list[LiveNewsItem]:
+        if not self.api_key:
+            return []
+        response = httpx.get(
+            "https://api.tiingo.com/tiingo/news",
+            params={
+                "tickers": symbol.lower(),
+                "limit": limit,
+                "token": self.api_key,
+            },
+            timeout=20,
+        )
+        response.raise_for_status()
+        items: list[LiveNewsItem] = []
+        for row in response.json() or []:
+            items.append(
+                LiveNewsItem(
+                    symbol=symbol.upper(),
+                    title=str(row.get("title") or ""),
+                    publisher=str(row.get("source") or "Tiingo"),
+                    published_at=_parse_datetime(
+                        row.get("publishedDate") or row.get("crawlDate")
+                    ),
+                    url=str(row.get("url") or ""),
+                    summary=str(row.get("description") or ""),
+                    source="tiingo",
+                )
+            )
+        return [item for item in items if item.title]
+
+
+class EodhdProvider(RestProvider):
+    def __init__(self) -> None:
+        super().__init__("EODHD", "EODHD_API_KEY")
+
+    @staticmethod
+    def _symbol(symbol: str) -> str:
+        return symbol if "." in symbol else f"{symbol}.US"
+
+    def weekly_bars(self, symbol: str) -> list[OHLCVBar]:
+        if not self.api_key:
+            return []
+        response = httpx.get(
+            f"https://eodhd.com/api/eod/{self._symbol(symbol)}",
+            params={
+                "period": "w",
+                "fmt": "json",
+                "api_token": self.api_key,
+            },
+            timeout=20,
+        )
+        response.raise_for_status()
+        bars: list[OHLCVBar] = []
+        for row in response.json() or []:
+            timestamp = _parse_datetime(row.get("date"))
+            if timestamp is None:
+                continue
+            try:
+                bars.append(
+                    OHLCVBar(
+                        timestamp=timestamp,
+                        open=float(row["open"]),
+                        high=float(row["high"]),
+                        low=float(row["low"]),
+                        close=float(row["close"]),
+                        volume=float(row.get("volume") or 0),
+                    )
+                )
+            except (KeyError, TypeError, ValueError):
+                continue
+        return sorted(bars, key=lambda bar: bar.timestamp)
+
+    def news(self, symbol: str, limit: int = 12) -> list[LiveNewsItem]:
+        if not self.api_key:
+            return []
+        response = httpx.get(
+            "https://eodhd.com/api/news",
+            params={
+                "s": self._symbol(symbol),
+                "limit": limit,
+                "api_token": self.api_key,
+                "fmt": "json",
+            },
+            timeout=20,
+        )
+        response.raise_for_status()
+        items: list[LiveNewsItem] = []
+        for row in response.json() or []:
+            items.append(
+                LiveNewsItem(
+                    symbol=symbol.upper(),
+                    title=str(row.get("title") or ""),
+                    publisher=str(row.get("source") or "EODHD"),
+                    published_at=_parse_datetime(row.get("date")),
+                    url=str(row.get("link") or ""),
+                    summary=str(row.get("content") or ""),
+                    source="eodhd",
+                )
+            )
+        return [item for item in items if item.title]
+
+
 class LiveDataService:
     def __init__(self) -> None:
         self.yahoo = YahooProvider()
@@ -726,6 +902,9 @@ class LiveDataService:
         self.twelve = TwelveDataProvider()
         self.massive = MassiveProvider()
         self.finnhub = FinnhubProvider()
+        self.fmp = FmpProvider()
+        self.tiingo = TiingoProvider()
+        self.eodhd = EodhdProvider()
 
     def provider_status(self) -> list[ProviderStatus]:
         return [
@@ -781,6 +960,27 @@ class LiveDataService:
                 capabilities=["company news"],
                 detail=f"Set {self.finnhub.env_key} to enable.",
             ),
+            ProviderStatus(
+                name=self.fmp.name,
+                kind="market",
+                configured=bool(self.fmp.api_key),
+                capabilities=["daily ohlcv"],
+                detail=f"Set {self.fmp.env_key} to enable.",
+            ),
+            ProviderStatus(
+                name=self.tiingo.name,
+                kind="market+news",
+                configured=bool(self.tiingo.api_key),
+                capabilities=["weekly ohlcv", "company news"],
+                detail=f"Set {self.tiingo.env_key} to enable.",
+            ),
+            ProviderStatus(
+                name=self.eodhd.name,
+                kind="market+news",
+                configured=bool(self.eodhd.api_key),
+                capabilities=["weekly ohlcv", "company news"],
+                detail=f"Set {self.eodhd.env_key} to enable.",
+            ),
         ]
 
     def _weekly_bars(self, symbol: str) -> tuple[list[OHLCVBar], str]:
@@ -795,6 +995,9 @@ class LiveDataService:
 
         for provider, daily_mode in (
             (self.massive, True),
+            (self.fmp, True),
+            (self.tiingo, False),
+            (self.eodhd, False),
             (self.twelve, False),
             (self.alpha, False),
         ):
@@ -818,7 +1021,14 @@ class LiveDataService:
     def _news(self, symbol: str) -> tuple[list[LiveNewsItem], list[str]]:
         items: list[LiveNewsItem] = []
         sources: list[str] = []
-        providers = [self.yahoo, self.massive, self.finnhub, self.alpha]
+        providers = [
+            self.yahoo,
+            self.massive,
+            self.finnhub,
+            self.alpha,
+            self.tiingo,
+            self.eodhd,
+        ]
         for provider in providers:
             try:
                 if isinstance(provider, RestProvider) and not provider.api_key:
