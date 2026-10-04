@@ -64,14 +64,14 @@ jobs:
         run: |
           mkdir -p artifacts
           cp frontend/android/app/build/outputs/apk/debug/app-debug.apk artifacts/facsimile-android-debug.apk
-          sha256sum artifacts/facsimile-debug.apk > artifacts/facsimile-android-debug.apk.sha256
+          sha256sum artifacts/facsimile-android-debug.apk > artifacts/facsimile-android-debug.apk.sha256
 
       - name: Upload Facsimile APK
         uses: actions/upload-artifact@v4
         with:
           name: facsimile-android-standalone
           path: |
-            artifacts/facsimile-debug.apk
-            artifacts/facsimile-debug.apk.sha256
+            artifacts/facsimile-android-debug.apk
+            artifacts/facsimile-android-debug.apk.sha256
           if-no-files-found: error
           retention-days: 30
