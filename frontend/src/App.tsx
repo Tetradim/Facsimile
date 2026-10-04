@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { apiFetch, getApiBaseUrl, isNativeApp, setApiBaseUrl } from "./api";
+import { apiFetch, getApiBaseUrl, getMobileMode, isNativeApp, setApiBaseUrl, setMobileMode, type MobileMode } from "./api";
 import {
   Activity,
   BarChart3,
@@ -1032,15 +1032,33 @@ function ChartsPage() {
 
 
 function SettingsPage() {
+  const [mode, setMode] = useState<MobileMode>(getMobileMode());
   const [serverUrl, setServerUrlState] = useState(getApiBaseUrl());
   const [status, setStatus] = useState<"idle" | "testing" | "ok" | "error">("idle");
   const [message, setMessage] = useState("");
 
-  async function testConnection() {
-    const previous = getApiBaseUrl();
-    setApiBaseUrl(serverUrl);
+  function chooseMode(nextMode: MobileMode) {
+    setMobileMode(nextMode);
+    setMode(nextMode);
+    setStatus("idle");
+    setMessage(
+      nextMode === "standalone"
+        ? "Standalone mode enabled. No computer or local server is required."
+        : "Remote mode enabled. Enter a Facsimile API URL below.",
+    );
+  }
+
+  async function testCurrentMode() {
+    if (mode === "remote") {
+      setApiBaseUrl(serverUrl);
+    }
     setStatus("testing");
-    setMessage("Testing Facsimile API…");
+    setMessage(
+      mode === "standalone"
+        ? "Checking the on-device Facsimile engine…"
+        : "Testing the remote Facsimile API…",
+    );
+
     try {
       const response = await apiFetch("/health", {
         headers: { Accept: "application/json" },
@@ -1048,28 +1066,31 @@ function SettingsPage() {
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
-      const payload = (await response.json()) as { status?: string; service?: string };
+      const payload = (await response.json()) as {
+        status?: string;
+        service?: string;
+        mode?: string;
+      };
       setStatus("ok");
       setMessage(
-        `Connected to ${payload.service ?? "Facsimile"} (${payload.status ?? "ok"}).`,
+        mode === "standalone"
+          ? "Standalone engine is ready. Live scans will run entirely on this phone."
+          : `Connected to ${payload.service ?? "Facsimile"} (${payload.status ?? "ok"}).`,
       );
     } catch (error) {
       setStatus("error");
       setMessage(
         error instanceof Error
-          ? `Connection failed: ${error.message}`
-          : "Connection failed.",
+          ? `Connection test failed: ${error.message}`
+          : "Connection test failed.",
       );
-      if (!serverUrl.trim()) {
-        setApiBaseUrl(previous);
-      }
     }
   }
 
   function saveServer() {
     setApiBaseUrl(serverUrl);
     setServerUrlState(getApiBaseUrl());
-    setMessage("Server URL saved.");
+    setMessage("Remote server URL saved.");
     setStatus("idle");
   }
 
@@ -1077,56 +1098,86 @@ function SettingsPage() {
     <>
       <div className="page-heading">
         <div>
-          <div className="eyebrow">APP / CONNECTION</div>
+          <div className="eyebrow">APP / DATA MODE</div>
           <h1>Settings</h1>
-          <p>Connect the Android workstation to the Facsimile scanner service.</p>
+          <p>Android runs independently by default. A desktop server is optional.</p>
         </div>
         <div className="live-mode-badge">
           <span className="live-dot" />
-          {isNativeApp() ? "ANDROID APP" : "WEB APP"}
+          {mode === "standalone" ? "STANDALONE" : "REMOTE"}
         </div>
       </div>
 
       <div className="builder-layout">
         <Panel
-          title="Scanner Server"
-          subtitle="The APK keeps the UI on-device and uses the same Python scanner engine as desktop."
+          title="Android Data Mode"
+          subtitle="Standalone keeps the scanner, indicators, ranking and live-data requests on the phone."
         >
           <div className="settings-stack">
-            <label className="field">
-              <span>Facsimile API URL</span>
-              <input
-                value={serverUrl}
-                onChange={(event) => setServerUrlState(event.target.value)}
-                placeholder="http://192.168.1.50:8765"
-                inputMode="url"
-                autoCapitalize="none"
-                autoCorrect="off"
-              />
-            </label>
-            <div className="settings-hint">
-              <strong>Physical phone:</strong> use your PC's LAN IPv4 address, such as
-              <code>http://192.168.1.50:8765</code>. Run <code>mobile-server.bat</code>
-              on the PC first.
-            </div>
-            <div className="settings-hint">
-              <strong>Android emulator:</strong> use
-              <code>http://10.0.2.2:8765</code>.
-            </div>
-            <div className="settings-actions">
-              <button className="button button--ghost" onClick={saveServer}>
-                <Save size={16} />
-                Save
+            <div className="mode-picker">
+              <button
+                className={mode === "standalone" ? "mode-card mode-card--active" : "mode-card"}
+                onClick={() => chooseMode("standalone")}
+              >
+                <strong>Standalone</strong>
+                <span>No PC required. Recommended.</span>
               </button>
               <button
-                className="button button--primary"
-                onClick={testConnection}
-                disabled={status === "testing"}
+                className={mode === "remote" ? "mode-card mode-card--active" : "mode-card"}
+                onClick={() => chooseMode("remote")}
               >
-                <Activity size={16} />
-                {status === "testing" ? "Testing…" : "Test Connection"}
+                <strong>Remote API</strong>
+                <span>Optional Python backend for desktop parity/debugging.</span>
               </button>
             </div>
+
+            {mode === "standalone" ? (
+              <>
+                <div className="settings-hint">
+                  <strong>Independent mode:</strong> the app screens stocks, downloads weekly
+                  OHLCV/news over the internet, evaluates the Medical Catalyst Weekly rules,
+                  scores candidates, and ranks results directly on Android.
+                </div>
+                <div className="settings-hint">
+                  <strong>No LAN address needed.</strong> You can close the PC completely.
+                  The phone only needs internet access.
+                </div>
+              </>
+            ) : (
+              <>
+                <label className="field">
+                  <span>Facsimile API URL</span>
+                  <input
+                    value={serverUrl}
+                    onChange={(event) => setServerUrlState(event.target.value)}
+                    placeholder="https://scanner.example.com"
+                    inputMode="url"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                  />
+                </label>
+                <div className="settings-actions">
+                  <button className="button button--ghost" onClick={saveServer}>
+                    <Save size={16} />
+                    Save URL
+                  </button>
+                </div>
+              </>
+            )}
+
+            <button
+              className="button button--primary button--full"
+              onClick={testCurrentMode}
+              disabled={status === "testing"}
+            >
+              <Activity size={16} />
+              {status === "testing"
+                ? "Testing…"
+                : mode === "standalone"
+                  ? "Check Standalone Engine"
+                  : "Test Remote Connection"}
+            </button>
+
             {message ? (
               <div
                 className={
@@ -1143,15 +1194,19 @@ function SettingsPage() {
           </div>
         </Panel>
 
-        <Panel title="Mobile Test Checklist" subtitle="Recommended first-run workflow">
+        <Panel title="Standalone Capabilities" subtitle="What now runs inside the APK">
           <div className="gate-list gate-list--single">
             {[
-              "PC and phone are on the same trusted Wi-Fi network",
-              "mobile-server.bat is running on the PC",
-              "Windows Firewall allows Private network access",
-              "Server URL passes Test Connection",
-              "Value Scanner shows live provider status",
-              "Run Live Scan returns current symbols and timestamps",
+              "Live U.S. equity screening by price and sector",
+              "Weekly OHLCV retrieval",
+              "Recent company-news retrieval",
+              "6–12 week consolidation-box detection",
+              "20-week moving-average confirmation",
+              "MACD 12/26/9 confirmation",
+              "Relative-volume hard gate",
+              "Structural stop/risk calculation",
+              "Breakout, risk, momentum, entry and overall scoring",
+              "Catalyst scoring and result ranking",
             ].map((item) => (
               <div className="gate-item" key={item}>
                 <span className="gate-check">✓</span>
@@ -1240,7 +1295,7 @@ export default function App() {
             <div className="market-state">
               <span className="live-dot" />
               <strong>MARKET OPEN</strong>
-              <span>{isNativeApp() ? "Android workstation" : "Live data workstation"}</span>
+              <span>{isNativeApp() ? (getMobileMode() === "standalone" ? "Standalone Android" : "Android remote") : "Live data workstation"}</span>
             </div>
           </div>
           <div className="topbar-actions">
