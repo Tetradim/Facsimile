@@ -10,11 +10,11 @@ from facsimile.models import (
 )
 
 
-def _bars(multiplier: float = 1.0) -> list[OHLCVBar]:
+def _bars(multiplier: float = 1.0, step: float = 0.01) -> list[OHLCVBar]:
     start = datetime(2025, 1, 3, tzinfo=timezone.utc)
     bars = []
     for index in range(60):
-        close = (1.0 + index * 0.01) * multiplier
+        close = (1.0 + index * step) * multiplier
         bars.append(
             OHLCVBar(
                 timestamp=start + timedelta(days=7 * index),
@@ -73,8 +73,8 @@ def _candidate(state: CandidateState = CandidateState.CONFIRMED) -> BreakoutCand
 def test_confirmed_candidate_receives_actionable_tier_and_explanations():
     intelligence = build_candidate_intelligence(
         _candidate(),
-        _bars(1.2),
-        _bars(1.0),
+        _bars(1.0, step=0.02),
+        _bars(1.0, step=0.01),
         [],
         80,
     )
