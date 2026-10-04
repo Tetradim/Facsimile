@@ -17,6 +17,7 @@ from .live_data import (
     ProviderStatus,
     get_live_data_service,
 )
+from .strategy import StrategyDefinition, default_presets
 from .models import (
     BreakoutCandidate,
     BreakoutConfig,
@@ -184,6 +185,14 @@ def _filter_market_universe(
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "service": "facsimile"}
+
+
+@app.get(
+    "/v1/strategies/presets",
+    response_model=list[StrategyDefinition],
+)
+def strategy_presets() -> list[StrategyDefinition]:
+    return default_presets()
 
 
 @app.get(
