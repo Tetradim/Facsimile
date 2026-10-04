@@ -469,6 +469,9 @@ type LiveScanRow = {
       breakout_trigger: { score: number; positives: string[]; cautions: string[] };
       relative_strength: { score: number; positives: string[]; cautions: string[] };
       catalyst: { score: number; positives: string[]; cautions: string[] };
+      growth: { score: number; positives: string[]; cautions: string[] };
+      profitability: { score: number; positives: string[]; cautions: string[] };
+      financial_health: { score: number; positives: string[]; cautions: string[] };
       fundamental_quality: { score: number; positives: string[]; cautions: string[] };
       dilution_safety: { score: number; positives: string[]; cautions: string[] };
       liquidity: { score: number; positives: string[]; cautions: string[] };
@@ -481,6 +484,7 @@ type LiveScanRow = {
       stop_risk_pct?: number | null;
       box_bars?: number | null;
       box_width_pct?: number | null;
+      cash_runway_years?: number | null;
     };
   } | null;
   data_sources: string[];
@@ -509,7 +513,7 @@ function LiveStateBadge({ state }: { state: LiveScanRow["candidate"]["state"] })
 }
 
 
-type IntelligenceView = "breakout" | "catalyst" | "risk";
+type IntelligenceView = "breakout" | "catalyst" | "fundamental" | "risk";
 
 function TierBadge({ tier }: { tier: NonNullable<LiveScanRow["intelligence"]>["tier"] }) {
   const className =
@@ -571,6 +575,15 @@ function IntelligenceResultsTable({
                 <th>Recent News</th>
               </>
             ) : null}
+            {view === "fundamental" ? (
+              <>
+                <th>Fundamental</th>
+                <th>Growth</th>
+                <th>Profitability</th>
+                <th>Financial Health</th>
+                <th>Cash Runway</th>
+              </>
+            ) : null}
             {view === "risk" ? (
               <>
                 <th>Trade Risk</th>
@@ -609,6 +622,9 @@ function IntelligenceResultsTable({
                             ["Trigger", scores?.breakout_trigger],
                             ["RS", scores?.relative_strength],
                             ["Catalyst", scores?.catalyst],
+                            ["Growth", scores?.growth],
+                            ["Profitability", scores?.profitability],
+                            ["Financial Health", scores?.financial_health],
                             ["Dilution", scores?.dilution_safety],
                             ["Liquidity", scores?.liquidity],
                             ["Risk", scores?.trade_risk],
@@ -694,6 +710,20 @@ function IntelligenceResultsTable({
                       ) : (
                         <span className="muted">No catalyst evidence</span>
                       )}
+                    </td>
+                  </>
+                ) : null}
+
+                {view === "fundamental" ? (
+                  <>
+                    <td><IntelligenceCell label="" score={scores?.fundamental_quality.score} /></td>
+                    <td><IntelligenceCell label="" score={scores?.growth.score} /></td>
+                    <td><IntelligenceCell label="" score={scores?.profitability.score} /></td>
+                    <td><IntelligenceCell label="" score={scores?.financial_health.score} /></td>
+                    <td className="numeric">
+                      {intelligence?.facts.cash_runway_years != null
+                        ? intelligence.facts.cash_runway_years.toFixed(1) + "y"
+                        : "—"}
                     </td>
                   </>
                 ) : null}
@@ -1020,6 +1050,7 @@ function ValueScanner() {
               {[
                 ["breakout", "Breakout View"],
                 ["catalyst", "Catalyst View"],
+                ["fundamental", "Fundamental View"],
                 ["risk", "Risk View"],
               ].map(([id, label]) => (
                 <button
@@ -1384,6 +1415,10 @@ function BuilderPage() {
               <option value="scores.relative_strength">Relative Strength</option>
               <option value="catalyst_score">Catalyst</option>
               <option value="scores.fundamental">Fundamental Quality</option>
+              <option value="scores.growth">Growth</option>
+              <option value="scores.profitability">Profitability</option>
+              <option value="scores.financial_health">Financial Health</option>
+              <option value="cash_runway_years">Cash Runway Years</option>
               <option value="dilution_risk">Dilution Risk</option>
               <option value="scores.dilution_safety">Dilution Safety</option>
               <option value="scores.liquidity">Liquidity</option>
