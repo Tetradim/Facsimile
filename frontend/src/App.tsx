@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { apiFetch, getApiBaseUrl, isNativeApp, setApiBaseUrl } from "./api";
 import {
   Activity,
   BarChart3,
@@ -44,7 +45,8 @@ type Page =
   | "value"
   | "breakout"
   | "builder"
-  | "charts";
+  | "charts"
+  | "settings";
 
 type Candidate = {
   symbol: string;
@@ -485,7 +487,7 @@ function ValueScanner() {
     setLoading(true);
     setError("");
     try {
-      const response = await fetch("/v1/live/scan/weekly-breakout", {
+      const response = await apiFetch("/v1/live/scan/weekly-breakout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1028,6 +1030,141 @@ function ChartsPage() {
   );
 }
 
+
+function SettingsPage() {
+  const [serverUrl, setServerUrlState] = useState(getApiBaseUrl());
+  const [status, setStatus] = useState<"idle" | "testing" | "ok" | "error">("idle");
+  const [message, setMessage] = useState("");
+
+  async function testConnection() {
+    const previous = getApiBaseUrl();
+    setApiBaseUrl(serverUrl);
+    setStatus("testing");
+    setMessage("Testing Facsimile API…");
+    try {
+      const response = await apiFetch("/health", {
+        headers: { Accept: "application/json" },
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const payload = (await response.json()) as { status?: string; service?: string };
+      setStatus("ok");
+      setMessage(
+        `Connected to ${payload.service ?? "Facsimile"} (${payload.status ?? "ok"}).`,
+      );
+    } catch (error) {
+      setStatus("error");
+      setMessage(
+        error instanceof Error
+          ? `Connection failed: ${error.message}`
+          : "Connection failed.",
+      );
+      if (!serverUrl.trim()) {
+        setApiBaseUrl(previous);
+      }
+    }
+  }
+
+  function saveServer() {
+    setApiBaseUrl(serverUrl);
+    setServerUrlState(getApiBaseUrl());
+    setMessage("Server URL saved.");
+    setStatus("idle");
+  }
+
+  return (
+    <>
+      <div className="page-heading">
+        <div>
+          <div className="eyebrow">APP / CONNECTION</div>
+          <h1>Settings</h1>
+          <p>Connect the Android workstation to the Facsimile scanner service.</p>
+        </div>
+        <div className="live-mode-badge">
+          <span className="live-dot" />
+          {isNativeApp() ? "ANDROID APP" : "WEB APP"}
+        </div>
+      </div>
+
+      <div className="builder-layout">
+        <Panel
+          title="Scanner Server"
+          subtitle="The APK keeps the UI on-device and uses the same Python scanner engine as desktop."
+        >
+          <div className="settings-stack">
+            <label className="field">
+              <span>Facsimile API URL</span>
+              <input
+                value={serverUrl}
+                onChange={(event) => setServerUrlState(event.target.value)}
+                placeholder="http://192.168.1.50:8765"
+                inputMode="url"
+                autoCapitalize="none"
+                autoCorrect="off"
+              />
+            </label>
+            <div className="settings-hint">
+              <strong>Physical phone:</strong> use your PC's LAN IPv4 address, such as
+              <code>http://192.168.1.50:8765</code>. Run <code>mobile-server.bat</code>
+              on the PC first.
+            </div>
+            <div className="settings-hint">
+              <strong>Android emulator:</strong> use
+              <code>http://10.0.2.2:8765</code>.
+            </div>
+            <div className="settings-actions">
+              <button className="button button--ghost" onClick={saveServer}>
+                <Save size={16} />
+                Save
+              </button>
+              <button
+                className="button button--primary"
+                onClick={testConnection}
+                disabled={status === "testing"}
+              >
+                <Activity size={16} />
+                {status === "testing" ? "Testing…" : "Test Connection"}
+              </button>
+            </div>
+            {message ? (
+              <div
+                className={
+                  status === "ok"
+                    ? "connection-status connection-status--ok"
+                    : status === "error"
+                      ? "connection-status connection-status--error"
+                      : "connection-status"
+                }
+              >
+                {message}
+              </div>
+            ) : null}
+          </div>
+        </Panel>
+
+        <Panel title="Mobile Test Checklist" subtitle="Recommended first-run workflow">
+          <div className="gate-list gate-list--single">
+            {[
+              "PC and phone are on the same trusted Wi-Fi network",
+              "mobile-server.bat is running on the PC",
+              "Windows Firewall allows Private network access",
+              "Server URL passes Test Connection",
+              "Value Scanner shows live provider status",
+              "Run Live Scan returns current symbols and timestamps",
+            ].map((item) => (
+              <div className="gate-item" key={item}>
+                <span className="gate-check">✓</span>
+                <span>{item}</span>
+              </div>
+            ))}
+          </div>
+        </Panel>
+      </div>
+    </>
+  );
+}
+
 export default function App() {
   const [page, setPage] = useState<Page>("command");
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -1076,7 +1213,11 @@ export default function App() {
         </div>
 
         <div className="sidebar-bottom">
-          <button className="nav-item" title="Settings">
+          <button
+            className={page === "settings" ? "nav-item nav-item--active" : "nav-item"}
+            title="Settings"
+            onClick={() => setPage("settings")}
+          >
             <Settings size={18} />
             {sidebarOpen ? <span>Settings</span> : null}
           </button>
@@ -1099,7 +1240,7 @@ export default function App() {
             <div className="market-state">
               <span className="live-dot" />
               <strong>MARKET OPEN</strong>
-              <span>Data workstation demo</span>
+              <span>{isNativeApp() ? "Android workstation" : "Live data workstation"}</span>
             </div>
           </div>
           <div className="topbar-actions">
@@ -1118,6 +1259,7 @@ export default function App() {
           {page === "breakout" ? <BreakoutPage /> : null}
           {page === "builder" ? <BuilderPage /> : null}
           {page === "charts" ? <ChartsPage /> : null}
+          {page === "settings" ? <SettingsPage /> : null}
         </main>
       </div>
     </div>
