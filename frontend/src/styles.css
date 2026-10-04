@@ -1726,3 +1726,298 @@ button {
     flex: 1;
   }
 }
+
+
+/* Watchlists, backtest lab, live candlesticks */
+.watchlist-grid {
+  display: grid;
+  gap: 9px;
+}
+
+.watchlist-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px;
+  border: 1px solid #1e2b40;
+  border-radius: 9px;
+  background: #0b131e;
+}
+
+.watchlist-card strong,
+.watchlist-card span {
+  display: block;
+}
+
+.watchlist-card strong {
+  color: #dce7f5;
+  font-size: 10px;
+}
+
+.watchlist-card span {
+  margin-top: 4px;
+  color: #6f7e92;
+  font-size: 9px;
+}
+
+.watchlist-actions,
+.backtest-controls,
+.chart-search-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.watchlist-actions .logic-remove {
+  width: 34px;
+  height: 34px;
+}
+
+.event-feed {
+  display: grid;
+  gap: 7px;
+}
+
+.event-row {
+  display: grid;
+  grid-template-columns: 135px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid #1c283a;
+  border-radius: 8px;
+  background: #0b121c;
+}
+
+.event-row strong,
+.event-row span {
+  display: block;
+}
+
+.event-row strong {
+  color: #dbe6f3;
+  font-size: 10px;
+}
+
+.event-row > div > span {
+  margin-top: 3px;
+  color: #8492a5;
+  font-size: 9px;
+}
+
+.event-row time {
+  color: #627188;
+  font-size: 8px;
+  white-space: nowrap;
+}
+
+.event-type {
+  display: inline-flex !important;
+  width: fit-content;
+  padding: 4px 7px;
+  border: 1px solid #2a3b56;
+  border-radius: 999px;
+  background: #111b29;
+  color: #91a7c6;
+  font-size: 8px !important;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.event-type--confirmed_breakout,
+.event-type--new_match {
+  border-color: rgba(34, 197, 94, 0.28);
+  background: rgba(34, 197, 94, 0.09);
+  color: #77e59a;
+}
+
+.event-type--tier_change,
+.event-type--state_change {
+  border-color: rgba(79, 140, 255, 0.28);
+  background: rgba(79, 140, 255, 0.09);
+  color: #86b6ff;
+}
+
+.event-type--strategy_match_change {
+  border-color: rgba(167, 139, 250, 0.28);
+  background: rgba(167, 139, 250, 0.09);
+  color: #c4b5fd;
+}
+
+.event-type--score_move {
+  border-color: rgba(245, 158, 11, 0.28);
+  background: rgba(245, 158, 11, 0.08);
+  color: #f5bd55;
+}
+
+.watch-snapshot-table,
+.backtest-table {
+  min-width: 850px;
+}
+
+.backtest-controls .field--compact {
+  min-width: 110px;
+}
+
+.field--compact span {
+  font-size: 8px;
+}
+
+.field--compact select {
+  height: 38px;
+}
+
+.candlestick-shell {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.candlestick-chart {
+  display: block;
+  width: 100%;
+  min-width: 760px;
+  min-height: 430px;
+}
+
+.candle-bg {
+  fill: #080e16;
+  stroke: #172336;
+}
+
+.candle-grid {
+  stroke: #182538;
+  stroke-width: 1;
+}
+
+.candle-axis-label {
+  fill: #67768a;
+  font-size: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.wick {
+  stroke-width: 1.3;
+}
+
+.wick--up,
+.candle--up {
+  stroke: #22c55e;
+  fill: #22c55e;
+}
+
+.wick--down,
+.candle--down {
+  stroke: #ef5350;
+  fill: #ef5350;
+}
+
+.box-zone {
+  fill: rgba(139, 92, 246, 0.10);
+  stroke: rgba(167, 139, 250, 0.55);
+  stroke-width: 1;
+  stroke-dasharray: 5 4;
+}
+
+.resistance-line {
+  stroke: #22c55e;
+  stroke-width: 1.3;
+  stroke-dasharray: 7 5;
+}
+
+.stop-line {
+  stroke: #ef5350;
+  stroke-width: 1.3;
+  stroke-dasharray: 6 5;
+}
+
+.ma-line {
+  fill: none;
+  stroke: #4f8cff;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.resistance-label,
+.stop-label {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.resistance-label {
+  fill: #6ee792;
+}
+
+.stop-label {
+  fill: #ff8e8b;
+}
+
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 10px;
+  color: #7d8ca0;
+  font-size: 9px;
+}
+
+.chart-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chart-legend i {
+  width: 16px;
+  height: 3px;
+  border-radius: 999px;
+}
+
+.legend-ma {
+  background: #4f8cff;
+}
+
+.legend-box {
+  background: #8b5cf6;
+}
+
+.legend-resistance {
+  background: #22c55e;
+}
+
+.legend-stop {
+  background: #ef5350;
+}
+
+@media (max-width: 900px) {
+  .watchlist-card,
+  .backtest-controls,
+  .chart-search-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .watchlist-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .watchlist-actions .button {
+    flex: 1;
+  }
+
+  .event-row {
+    grid-template-columns: 1fr;
+  }
+
+  .event-row time {
+    white-space: normal;
+  }
+
+  .candlestick-chart {
+    min-width: 680px;
+  }
+}
