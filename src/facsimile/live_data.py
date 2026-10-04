@@ -17,6 +17,7 @@ load_dotenv()
 from .breakout import WeeklyBreakoutEngine
 from .intelligence import CandidateIntelligence, build_candidate_intelligence
 from .models import BreakoutCandidate, BreakoutConfig, FundamentalSnapshot, OHLCVBar, VolumeMode
+from .strategy import StrategyDefinition, StrategyEvaluation, evaluate_strategy
 from .weekly import aggregate_daily_to_weekly
 
 
@@ -59,6 +60,8 @@ class LiveScanRequest(BaseModel):
     max_candidates: int = Field(default=35, ge=1, le=100)
     max_results: int = Field(default=30, ge=1, le=100)
     include_rejected: bool = True
+    strategy: StrategyDefinition | None = None
+    require_strategy_match: bool = True
     config: BreakoutConfig | None = None
 
 
@@ -68,6 +71,7 @@ class LiveScanRow(BaseModel):
     news: list[LiveNewsItem] = Field(default_factory=list)
     catalyst_score: float = Field(default=0, ge=0, le=100)
     intelligence: CandidateIntelligence | None = None
+    strategy_evaluation: StrategyEvaluation | None = None
     rank: int | None = Field(default=None, ge=1)
     data_sources: list[str] = Field(default_factory=list)
     error: str | None = None
@@ -1221,6 +1225,72 @@ class LiveDataService:
     def profile_for_symbol(self, symbol: str) -> LiveProfile:
         return self.yahoo.profile(symbol.upper())
 
+
+    @staticmethod
+    def _strategy_facts(
+        profile: LiveProfile,
+        candidate: BreakoutCandidate,
+        intelligence: CandidateIntelligence,
+        catalyst_score: float,
+    ) -> dict[str, Any]:
+        return {
+            "price": profile.price,
+            "sector": profile.sector or "",
+            "industry": profile.industry or "",
+            "market_cap": profile.market_cap,
+            "state": candidate.state.value,
+            "catalyst_score": catalyst_score,
+            "recent_news_count": intelligence.facts.get(
+                "recent_news_count",
+                0,
+            ),
+            "dilution_risk": intelligence.facts.get(
+                "dilution_risk",
+                "unknown",
+            ),
+            "stop_risk_pct": candidate.stop_risk_pct,
+            "box_bars": (
+                candidate.box.bars
+                if candidate.box is not None
+                else None
+            ),
+            "box_width_pct": (
+                candidate.box.width_pct
+                if candidate.box is not None
+                else None
+            ),
+            "close_above_box_pct": candidate.metrics.get(
+                "close_above_box_pct"
+            ),
+            "close_location": candidate.metrics.get("close_location"),
+            "upper_wick_ratio": candidate.metrics.get(
+                "upper_wick_ratio"
+            ),
+            "volume_vs_average": candidate.metrics.get(
+                "volume_vs_average"
+            ),
+            "scores": {
+                "technical": intelligence.scores.technical_health.score,
+                "setup": intelligence.scores.setup_quality.score,
+                "trigger": intelligence.scores.breakout_trigger.score,
+                "relative_strength": (
+                    intelligence.scores.relative_strength.score
+                ),
+                "catalyst": intelligence.scores.catalyst.score,
+                "fundamental": (
+                    intelligence.scores.fundamental_quality.score
+                ),
+                "dilution_safety": (
+                    intelligence.scores.dilution_safety.score
+                ),
+                "liquidity": intelligence.scores.liquidity.score,
+                "trade_risk": intelligence.scores.trade_risk.score,
+                "overall": intelligence.scores.overall,
+            },
+            "tier": intelligence.tier.value,
+        }
+
+
     def _scan_one(
         self,
         profile_hint: LiveProfile,
@@ -1263,12 +1333,26 @@ class LiveDataService:
                 [],
                 0,
             )
+            strategy_evaluation = (
+                evaluate_strategy(
+                    request.strategy,
+                    self._strategy_facts(
+                        profile,
+                        candidate,
+                        intelligence,
+                        0,
+                    ),
+                )
+                if request.strategy is not None
+                else None
+            )
             return LiveScanRow(
                 profile=profile,
                 candidate=candidate,
                 news=[],
                 catalyst_score=0,
                 intelligence=intelligence,
+                strategy_evaluation=strategy_evaluation,
                 data_sources=sorted(set(sources)),
             )
 
@@ -1296,12 +1380,26 @@ class LiveDataService:
             recent_news,
             catalyst_score,
         )
+        strategy_evaluation = (
+            evaluate_strategy(
+                request.strategy,
+                self._strategy_facts(
+                    profile,
+                    candidate,
+                    intelligence,
+                    catalyst_score,
+                ),
+            )
+            if request.strategy is not None
+            else None
+        )
         return LiveScanRow(
             profile=profile,
             candidate=candidate,
             news=recent_news[:8],
             catalyst_score=catalyst_score,
             intelligence=intelligence,
+            strategy_evaluation=strategy_evaluation,
             data_sources=sorted(set(sources)),
         )
 
@@ -1371,7 +1469,16 @@ class LiveDataService:
                 except Exception as exc:
                     warnings.append(f"{profile.symbol}: {exc}")
                     continue
-                if request.include_rejected or row.candidate.state.value != "rejected":
+                strategy_pass = (
+                    row.strategy_evaluation is None
+                    or row.strategy_evaluation.passed
+                    or not request.require_strategy_match
+                )
+                state_pass = (
+                    request.include_rejected
+                    or row.candidate.state.value != "rejected"
+                )
+                if strategy_pass and state_pass:
                     rows.append(row)
 
         def rank(row: LiveScanRow) -> tuple[float, float, float, float, float]:
