@@ -1320,6 +1320,11 @@ class LiveDataService:
                     intelligence.scores.relative_strength.score
                 ),
                 "catalyst": intelligence.scores.catalyst.score,
+                "growth": intelligence.scores.growth.score,
+                "profitability": intelligence.scores.profitability.score,
+                "financial_health": (
+                    intelligence.scores.financial_health.score
+                ),
                 "fundamental": (
                     intelligence.scores.fundamental_quality.score
                 ),
@@ -1330,6 +1335,9 @@ class LiveDataService:
                 "trade_risk": intelligence.scores.trade_risk.score,
                 "overall": intelligence.scores.overall,
             },
+            "cash_runway_years": intelligence.facts.get(
+                "cash_runway_years"
+            ),
             "tier": intelligence.tier.value,
         }
 
@@ -1408,10 +1416,16 @@ class LiveDataService:
         if request.require_recent_news and not has_catalyst:
             bars, bar_source = self._weekly_bars(profile.symbol)
             sources.append(bar_source)
+            try:
+                fundamentals = self.yahoo.fundamentals(profile.symbol)
+                if fundamentals is not None:
+                    sources.append("yahoo_fundamentals")
+            except Exception:
+                fundamentals = None
             candidate = WeeklyBreakoutEngine(config).evaluate(
                 profile.symbol,
                 bars,
-                None,
+                fundamentals,
             )
             candidate.state = candidate.state.__class__.REJECTED
             candidate.reasons.append(
@@ -1427,6 +1441,7 @@ class LiveDataService:
                 benchmark_bars,
                 [],
                 combined_catalyst_score,
+                fundamentals,
             )
             strategy_evaluation = (
                 evaluate_strategy(
@@ -1480,6 +1495,7 @@ class LiveDataService:
             benchmark_bars,
             recent_news,
             catalyst_score,
+            fundamentals,
         )
         strategy_evaluation = (
             evaluate_strategy(
