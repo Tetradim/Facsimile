@@ -49,7 +49,7 @@ from .universe import (
 
 app = FastAPI(
     title="Facsimile Breakout Scanner",
-    version="0.2.0",
+    version="0.5.0",
     description=(
         "Clean-room scanner and universe filtering service. "
         "No brokerage execution."
