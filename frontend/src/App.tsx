@@ -1906,7 +1906,7 @@ export default function App() {
             </button>
             <div className="market-state">
               <span className="live-dot" />
-              <strong>MARKET OPEN</strong>
+              <strong>LIVE DATA</strong>
               <span>{isNativeApp() ? (getMobileMode() === "standalone" ? "Standalone Intelligence" : "Android remote") : "Live data workstation"}</span>
             </div>
           </div>
