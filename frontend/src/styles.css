@@ -1655,3 +1655,74 @@ button {
     min-height: 34px;
   }
 }
+
+
+.scan-action-buttons {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.saved-view-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.saved-view-chip {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid #24344d;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #0b131f;
+}
+
+.saved-view-chip > button:first-child {
+  display: grid;
+  gap: 3px;
+  padding: 9px 11px;
+  border: 0;
+  background: transparent;
+  color: #d7e2ef;
+  text-align: left;
+  cursor: pointer;
+}
+
+.saved-view-chip strong {
+  font-size: 9px;
+}
+
+.saved-view-chip span {
+  color: #72839a;
+  font-size: 8px;
+  text-transform: capitalize;
+}
+
+.saved-view-remove {
+  width: 30px;
+  border: 0;
+  border-left: 1px solid #24344d;
+  background: rgba(239, 68, 68, 0.04);
+  color: #c97c7a;
+  cursor: pointer;
+}
+
+@media (max-width: 900px) {
+  .scan-action-buttons {
+    width: 100%;
+    flex-direction: column;
+  }
+
+  .scan-action-buttons .button {
+    width: 100%;
+  }
+
+  .saved-view-chip {
+    width: 100%;
+  }
+
+  .saved-view-chip > button:first-child {
+    flex: 1;
+  }
+}
