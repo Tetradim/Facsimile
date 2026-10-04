@@ -587,6 +587,7 @@ async function nativeJson<T>(
   method: "GET" | "POST",
   url: string,
   data?: unknown,
+  extraHeaders: Record<string, string> = {},
 ): Promise<T> {
   const response = await CapacitorHttp.request({
     method,
@@ -595,6 +596,7 @@ async function nativeJson<T>(
       Accept: "application/json",
       "Content-Type": "application/json",
       "User-Agent": USER_AGENT,
+      ...extraHeaders,
     },
     data,
     connectTimeout: 15000,
@@ -614,6 +616,91 @@ function yahooQuery(
     operator: operator.toUpperCase(),
     operands,
   };
+}
+
+function parseNasdaqPrice(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  return safeNumber(String(value).replace(/[$,]/g, "").trim());
+}
+
+function matchesRequestedSector(
+  sector: string | null,
+  industry: string | null,
+  requested: string,
+): boolean {
+  const wanted = requested.trim().toLowerCase();
+  if (!wanted || ["all", "all sectors"].includes(wanted)) return true;
+
+  const sectorText = (sector ?? "").toLowerCase();
+  const industryText = (industry ?? "").toLowerCase();
+
+  if (MEDICAL_ALIASES.has(wanted)) {
+    return (
+      sectorText.includes("health") ||
+      ["biotech", "pharma", "medical", "diagnostic", "drug", "life science"]
+        .some((term) => industryText.includes(term))
+    );
+  }
+
+  return sectorText.includes(wanted) || industryText.includes(wanted);
+}
+
+async function screenNasdaq(
+  request: Required<
+    Pick<
+      StandaloneScanRequest,
+      "min_price" | "max_price" | "sector" | "max_candidates"
+    >
+  >,
+): Promise<StandaloneProfile[]> {
+  const url =
+    "https://api.nasdaq.com/api/screener/stocks" +
+    "?tableonly=true&limit=10000&offset=0&download=true";
+
+  const payload = await nativeJson<{
+    data?: {
+      rows?: Array<Record<string, unknown>>;
+    };
+    status?: {
+      bCodeMessage?: Array<Record<string, unknown>>;
+    };
+  }>(
+    "GET",
+    url,
+    undefined,
+    {
+      Accept: "application/json,text/plain,*/*",
+      Origin: "https://www.nasdaq.com",
+      Referer: "https://www.nasdaq.com/market-activity/stocks/screener",
+    },
+  );
+
+  const rows = payload.data?.rows ?? [];
+  const profiles: StandaloneProfile[] = [];
+  for (const row of rows) {
+    const symbol = String(row.symbol ?? "").trim().toUpperCase();
+    const price = parseNasdaqPrice(row.lastsale);
+    const sector = row.sector ? String(row.sector) : null;
+    const industry = row.industry ? String(row.industry) : null;
+
+    if (!symbol || price === null || price <= 0) continue;
+    if (price < request.min_price || price > request.max_price) continue;
+    if (!matchesRequestedSector(sector, industry, request.sector)) continue;
+
+    profiles.push({
+      symbol,
+      company: String(row.name ?? symbol),
+      price,
+      sector,
+      industry,
+      exchange: null,
+      market_cap: safeNumber(row.marketCap),
+      source: "nasdaq_screener_native",
+    });
+  }
+
+  profiles.sort((a, b) => b.price - a.price);
+  return profiles.slice(0, request.max_candidates);
 }
 
 async function screenYahoo(
@@ -822,6 +909,21 @@ async function mapWithConcurrency<T, R>(
 export function standaloneProviderStatus(): StandaloneProvider[] {
   return [
     {
+      name: "Nasdaq Screener Native",
+      kind: "universe",
+      configured: true,
+      zero_key: true,
+      capabilities: [
+        "US listed stocks",
+        "current screener price",
+        "sector",
+        "industry",
+        "market cap",
+      ],
+      detail:
+        "On-device access to Nasdaq's public stock-screener web endpoint. No PC or API key required.",
+    },
+    {
       name: "Yahoo Finance Native",
       kind: "market+news",
       configured: true,
@@ -873,15 +975,28 @@ export async function runStandaloneWeeklyScan(
   const warnings: string[] = [
     "Standalone mode uses Yahoo's unofficial finance endpoints; availability and latency can change.",
   ];
-  let profiles: StandaloneProfile[];
+  let profiles: StandaloneProfile[] = [];
   try {
-    profiles = await screenYahoo(request);
+    profiles = await screenNasdaq(request);
   } catch (error) {
-    throw new Error(
+    warnings.push(
       error instanceof Error
-        ? `Yahoo universe screen failed: ${error.message}`
-        : "Yahoo universe screen failed.",
+        ? `Nasdaq universe screen unavailable: ${error.message}`
+        : "Nasdaq universe screen unavailable.",
     );
+  }
+
+  if (!profiles.length) {
+    try {
+      profiles = await screenYahoo(request);
+      warnings.push("Nasdaq returned no matching rows; Yahoo screener fallback was used.");
+    } catch (error) {
+      throw new Error(
+        error instanceof Error
+          ? `No standalone universe source succeeded: ${error.message}`
+          : "No standalone universe source succeeded.",
+      );
+    }
   }
 
   const cutoff = Date.now() - request.news_lookback_days * 86_400_000;
@@ -917,7 +1032,7 @@ export async function runStandaloneWeeklyScan(
         news: recentNews,
         catalyst_score: catalystScore(recentNews),
         data_sources: [
-          "yahoo_screener_native",
+          profile.source,
           "yahoo_chart_native",
           "yahoo_news_native",
           "facsimile_ts_engine",
