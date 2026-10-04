@@ -126,7 +126,7 @@ def run_live_weekly_scan(request: LiveScanRequest) -> LiveScanResponse:
 
     results.sort(
         key=lambda item: (
-            item.breakout.scores.overall_score
+            item.breakout.scores.overall
             if item.breakout.scores is not None
             else -1,
             item.latest_news_at or datetime.min.replace(tzinfo=timezone.utc),
