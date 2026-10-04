@@ -188,7 +188,7 @@ const CATALYST_TERMS: Record<string, number> = {
   earnings: 8,
 };
 
-function medicalConfig(): BreakoutConfig {
+export function medicalConfig(): BreakoutConfig {
   return {
     min_box_bars: 6,
     max_box_bars: 12,
@@ -404,7 +404,7 @@ function rejectedCandidate(symbol: string, reason: string): BreakoutCandidate {
   };
 }
 
-function evaluateBreakout(
+export function evaluateBreakout(
   symbol: string,
   inputBars: OHLCVBar[],
   config = medicalConfig(),
@@ -799,7 +799,7 @@ function currentWeekMayBeIncomplete(): boolean {
   return !["Sat", "Sun"].includes(weekday);
 }
 
-async function yahooWeeklyBars(symbol: string): Promise<OHLCVBar[]> {
+export async function yahooWeeklyBars(symbol: string): Promise<OHLCVBar[]> {
   const url =
     `${YAHOO_ROOT}/v8/finance/chart/${encodeURIComponent(symbol)}` +
     "?range=2y&interval=1wk&includePrePost=false&events=history";
