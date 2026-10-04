@@ -6,23 +6,36 @@ candidate.
 
 ## Works without API keys
 
+### Nasdaq Screener
+
+Primary zero-key universe source for desktop live scans. Facsimile uses
+Nasdaq's public stock-screener web endpoint to obtain:
+
+- U.S. stock symbols
+- current screener price
+- sector
+- industry
+- market cap
+- trading volume
+
+Facsimile filters the Nasdaq rows locally by the requested price range and
+sector, then prioritizes the highest-volume matches before downloading weekly
+history and news.
+
 ### Yahoo Finance via yfinance
 
-Primary live-test source for:
+Zero-key market/news source and universe fallback for:
 
-- U.S. equity screening
 - current price and company profile
 - historical OHLCV
 - basic fundamentals
 - company news and press releases
-
-The live universe screen uses Yahoo's equity query interface to prefilter by
-price and sector before downloading individual ticker histories.
+- equity screening when Nasdaq is unavailable
 
 ### Nasdaq Trader
 
-Fallback listed-symbol universe and exchange metadata. The official Nasdaq
-Trader symbol directory is refreshed throughout the trading day.
+Independent listed-symbol universe and exchange metadata. The Nasdaq Trader
+symbol directory remains available as a separate reference/fallback source.
 
 ### SEC EDGAR
 
