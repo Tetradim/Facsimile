@@ -5,7 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from .models import BreakoutCandidate, OHLCVBar
+from .models import BreakoutCandidate, FundamentalSnapshot, OHLCVBar
 
 
 class CandidateTier(str, Enum):
@@ -29,6 +29,9 @@ class IntelligenceScores(BaseModel):
     breakout_trigger: ScoreEvidence
     relative_strength: ScoreEvidence
     catalyst: ScoreEvidence
+    growth: ScoreEvidence
+    profitability: ScoreEvidence
+    financial_health: ScoreEvidence
     fundamental_quality: ScoreEvidence
     dilution_safety: ScoreEvidence
     liquidity: ScoreEvidence
@@ -205,26 +208,225 @@ def trigger_score(candidate: BreakoutCandidate) -> ScoreEvidence:
     )
 
 
-def fundamental_score(candidate: BreakoutCandidate) -> ScoreEvidence:
-    if candidate.scores is None:
-        return ScoreEvidence(score=50, cautions=["Fundamental data unavailable."])
-    values = [
-        value
-        for value in (candidate.scores.quality, candidate.scores.growth)
-        if value is not None
-    ]
-    if not values:
+def growth_score(
+    fundamentals: FundamentalSnapshot | None,
+) -> ScoreEvidence:
+    if fundamentals is None:
         return ScoreEvidence(
             score=50,
-            cautions=["No reliable fundamental score was available."],
+            cautions=["Growth data unavailable; score held neutral."],
         )
-    score = sum(values) / len(values)
+
+    parts: list[float] = []
     positives: list[str] = []
-    if candidate.scores.quality is not None:
-        positives.append(f"Quality score {candidate.scores.quality:.0f}/100")
-    if candidate.scores.growth is not None:
-        positives.append(f"Growth score {candidate.scores.growth:.0f}/100")
-    return ScoreEvidence(score=round(score, 1), positives=positives)
+    cautions: list[str] = []
+
+    if fundamentals.revenue_growth is not None:
+        value = fundamentals.revenue_growth
+        parts.append(_clamp(50 + value * 160))
+        if value > 0.15:
+            positives.append(f"Revenue growth is {value * 100:.1f}%")
+        elif value < 0:
+            cautions.append(f"Revenue is contracting {abs(value) * 100:.1f}%")
+
+    if fundamentals.earnings_growth is not None:
+        value = fundamentals.earnings_growth
+        parts.append(_clamp(50 + value * 110))
+        if value > 0.15:
+            positives.append(f"Earnings growth is {value * 100:.1f}%")
+        elif value < 0:
+            cautions.append(f"Earnings growth is negative {value * 100:.1f}%")
+
+    if not parts:
+        return ScoreEvidence(
+            score=50,
+            cautions=["Provider returned no usable growth metrics."],
+        )
+
+    return ScoreEvidence(
+        score=round(sum(parts) / len(parts), 1),
+        positives=positives,
+        cautions=cautions,
+    )
+
+
+def profitability_score(
+    fundamentals: FundamentalSnapshot | None,
+) -> ScoreEvidence:
+    if fundamentals is None:
+        return ScoreEvidence(
+            score=50,
+            cautions=["Profitability data unavailable; score held neutral."],
+        )
+
+    parts: list[float] = []
+    positives: list[str] = []
+    cautions: list[str] = []
+
+    if fundamentals.gross_margin is not None:
+        value = fundamentals.gross_margin
+        parts.append(_clamp(value / 0.75 * 100))
+        if value >= 0.50:
+            positives.append(f"Gross margin is {value * 100:.1f}%")
+        elif value < 0.20:
+            cautions.append(f"Gross margin is low at {value * 100:.1f}%")
+
+    if fundamentals.operating_margin is not None:
+        value = fundamentals.operating_margin
+        parts.append(_clamp(50 + value * 180))
+        if value > 0:
+            positives.append(f"Operating margin is positive at {value * 100:.1f}%")
+        elif value < -0.30:
+            cautions.append(f"Operating margin is {value * 100:.1f}%")
+
+    if fundamentals.return_on_equity is not None:
+        value = fundamentals.return_on_equity
+        parts.append(_clamp(50 + value * 120))
+        if value > 0.10:
+            positives.append(f"ROE is {value * 100:.1f}%")
+        elif value < 0:
+            cautions.append(f"ROE is negative at {value * 100:.1f}%")
+
+    if not parts:
+        return ScoreEvidence(
+            score=50,
+            cautions=["Provider returned no usable profitability metrics."],
+        )
+
+    return ScoreEvidence(
+        score=round(sum(parts) / len(parts), 1),
+        positives=positives,
+        cautions=cautions,
+    )
+
+
+def financial_health_score(
+    fundamentals: FundamentalSnapshot | None,
+) -> tuple[ScoreEvidence, float | None]:
+    if fundamentals is None:
+        return (
+            ScoreEvidence(
+                score=50,
+                cautions=["Financial-health data unavailable; score held neutral."],
+            ),
+            None,
+        )
+
+    parts: list[float] = []
+    positives: list[str] = []
+    cautions: list[str] = []
+    cash_runway_years: float | None = None
+
+    if fundamentals.current_ratio is not None:
+        ratio = fundamentals.current_ratio
+        parts.append(_clamp(ratio / 2.0 * 100))
+        if ratio >= 1.5:
+            positives.append(f"Current ratio is {ratio:.2f}")
+        elif ratio < 1.0:
+            cautions.append(f"Current ratio is weak at {ratio:.2f}")
+
+    if fundamentals.debt_to_equity is not None:
+        ratio = max(0.0, fundamentals.debt_to_equity)
+        parts.append(_clamp(100 - ratio * 45))
+        if ratio <= 0.5:
+            positives.append(f"Debt/equity is contained at {ratio:.2f}")
+        elif ratio >= 1.5:
+            cautions.append(f"Debt/equity is elevated at {ratio:.2f}")
+
+    if fundamentals.total_cash is not None and fundamentals.total_debt is not None:
+        cash = max(0.0, fundamentals.total_cash)
+        debt = max(0.0, fundamentals.total_debt)
+        if cash >= debt:
+            parts.append(90)
+            positives.append("Cash is at or above total debt")
+        elif debt > 0:
+            cash_to_debt = cash / debt
+            parts.append(_clamp(cash_to_debt * 80))
+            cautions.append(
+                f"Cash covers only {cash_to_debt * 100:.0f}% of total debt"
+            )
+
+    if (
+        fundamentals.total_cash is not None
+        and fundamentals.operating_cashflow is not None
+    ):
+        cash = max(0.0, fundamentals.total_cash)
+        operating_cashflow = fundamentals.operating_cashflow
+        if operating_cashflow < 0 and cash > 0:
+            cash_runway_years = cash / abs(operating_cashflow)
+            parts.append(_clamp(cash_runway_years / 2.0 * 100))
+            if cash_runway_years >= 2:
+                positives.append(
+                    f"Estimated operating-cash runway is {cash_runway_years:.1f} years"
+                )
+            elif cash_runway_years >= 1:
+                positives.append(
+                    f"Estimated operating-cash runway is {cash_runway_years:.1f} years"
+                )
+            elif cash_runway_years < 0.5:
+                cautions.append(
+                    f"Estimated operating-cash runway is only {cash_runway_years:.1f} years"
+                )
+            else:
+                cautions.append(
+                    f"Estimated operating-cash runway is {cash_runway_years:.1f} years"
+                )
+        elif operating_cashflow >= 0:
+            parts.append(90)
+            positives.append("Operating cash flow is positive")
+
+    if fundamentals.free_cashflow is not None:
+        if fundamentals.free_cashflow >= 0:
+            parts.append(90)
+            positives.append("Free cash flow is positive")
+        else:
+            parts.append(35)
+            cautions.append("Free cash flow is negative")
+
+    if not parts:
+        return (
+            ScoreEvidence(
+                score=50,
+                cautions=["Provider returned no usable balance-sheet/cash-flow metrics."],
+            ),
+            cash_runway_years,
+        )
+
+    return (
+        ScoreEvidence(
+            score=round(sum(parts) / len(parts), 1),
+            positives=positives,
+            cautions=cautions,
+        ),
+        cash_runway_years,
+    )
+
+
+def fundamental_score(
+    growth: ScoreEvidence,
+    profitability: ScoreEvidence,
+    financial_health: ScoreEvidence,
+) -> ScoreEvidence:
+    score = (
+        growth.score * 0.30
+        + profitability.score * 0.25
+        + financial_health.score * 0.45
+    )
+    positives = (
+        growth.positives[:1]
+        + profitability.positives[:1]
+        + financial_health.positives[:2]
+    )
+    cautions = (
+        growth.cautions[:1]
+        + profitability.cautions[:1]
+        + financial_health.cautions[:2]
+    )
+    return ScoreEvidence(
+        score=round(_clamp(score), 1),
+        positives=positives,
+        cautions=cautions,
+    )
 
 
 def dilution_score(news: list[Any]) -> tuple[ScoreEvidence, str]:
@@ -374,12 +576,22 @@ def build_candidate_intelligence(
     benchmark_bars: list[OHLCVBar] | None,
     news: list[Any],
     catalyst_score: float,
+    fundamentals: FundamentalSnapshot | None = None,
 ) -> CandidateIntelligence:
     technical = technical_score(candidate)
     setup = setup_score(candidate)
     trigger = trigger_score(candidate)
     relative = relative_strength_score(bars, benchmark_bars)
-    fundamental = fundamental_score(candidate)
+    growth = growth_score(fundamentals)
+    profitability = profitability_score(fundamentals)
+    financial_health, cash_runway_years = financial_health_score(
+        fundamentals
+    )
+    fundamental = fundamental_score(
+        growth,
+        profitability,
+        financial_health,
+    )
     dilution, dilution_risk = dilution_score(news)
     liquidity = liquidity_score(bars, candidate)
     trade_risk = trade_risk_score(candidate, liquidity)
@@ -396,15 +608,15 @@ def build_candidate_intelligence(
 
     overall = round(
         _clamp(
-            technical.score * 0.16
-            + setup.score * 0.15
-            + trigger.score * 0.17
+            technical.score * 0.14
+            + setup.score * 0.14
+            + trigger.score * 0.16
             + relative.score * 0.10
             + catalyst.score * 0.12
-            + fundamental.score * 0.08
+            + fundamental.score * 0.10
             + dilution.score * 0.08
-            + liquidity.score * 0.06
-            + trade_risk.score * 0.08
+            + liquidity.score * 0.07
+            + trade_risk.score * 0.09
         ),
         1,
     )
@@ -431,6 +643,9 @@ def build_candidate_intelligence(
             breakout_trigger=trigger,
             relative_strength=relative,
             catalyst=catalyst,
+            growth=growth,
+            profitability=profitability,
+            financial_health=financial_health,
             fundamental_quality=fundamental,
             dilution_safety=dilution,
             liquidity=liquidity,
@@ -443,5 +658,6 @@ def build_candidate_intelligence(
             "stop_risk_pct": candidate.stop_risk_pct,
             "box_bars": candidate.box.bars if candidate.box else None,
             "box_width_pct": candidate.box.width_pct if candidate.box else None,
+            "cash_runway_years": cash_runway_years,
         },
     )
