@@ -799,10 +799,14 @@ function currentWeekMayBeIncomplete(): boolean {
   return !["Sat", "Sun"].includes(weekday);
 }
 
-export async function yahooWeeklyBars(symbol: string): Promise<OHLCVBar[]> {
+export async function yahooWeeklyBars(
+  symbol: string,
+  range = "2y",
+): Promise<OHLCVBar[]> {
   const url =
     `${YAHOO_ROOT}/v8/finance/chart/${encodeURIComponent(symbol)}` +
-    "?range=2y&interval=1wk&includePrePost=false&events=history";
+    "?range=" + encodeURIComponent(range) +
+    "&interval=1wk&includePrePost=false&events=history";
   const payload = await nativeJson<{
     chart?: {
       result?: Array<{
