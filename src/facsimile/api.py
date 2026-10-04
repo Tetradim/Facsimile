@@ -17,7 +17,12 @@ from .live_data import (
     ProviderStatus,
     get_live_data_service,
 )
-from .strategy import StrategyDefinition, default_presets
+from .strategy import (
+    StrategyDefinition,
+    StrategyEvaluation,
+    default_presets,
+    evaluate_strategy,
+)
 from .models import (
     BreakoutCandidate,
     BreakoutConfig,
@@ -95,6 +100,11 @@ class BatchWeeklyScanResponse(BaseModel):
     eligible_count: int
     excluded_count: int
     candidates: list[BreakoutCandidate]
+
+
+class StrategyEvaluateRequest(BaseModel):
+    strategy: StrategyDefinition
+    facts: dict[str, object]
 
 
 def _universe_rejection(
@@ -193,6 +203,16 @@ def health() -> dict[str, str]:
 )
 def strategy_presets() -> list[StrategyDefinition]:
     return default_presets()
+
+
+@app.post(
+    "/v1/strategies/evaluate",
+    response_model=StrategyEvaluation,
+)
+def strategy_evaluate(
+    request: StrategyEvaluateRequest,
+) -> StrategyEvaluation:
+    return evaluate_strategy(request.strategy, request.facts)
 
 
 @app.get(
