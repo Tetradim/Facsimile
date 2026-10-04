@@ -7,6 +7,7 @@ from facsimile.models import (
     ConsolidationBox,
     OHLCVBar,
     ScoreCard,
+    FundamentalSnapshot,
 )
 
 
@@ -110,3 +111,38 @@ def test_rejected_state_never_outranks_confirmed_by_score():
 
     assert confirmed.rank_key[0] > rejected.rank_key[0]
     assert rejected.tier == CandidateTier.REJECTED
+
+
+
+def test_financial_health_exposes_cash_runway_and_subscores():
+    fundamentals = FundamentalSnapshot(
+        revenue_growth=0.24,
+        earnings_growth=0.18,
+        gross_margin=0.62,
+        operating_margin=-0.12,
+        return_on_equity=-0.08,
+        debt_to_equity=0.22,
+        current_ratio=2.4,
+        total_cash=120_000_000,
+        total_debt=18_000_000,
+        operating_cashflow=-60_000_000,
+        free_cashflow=-65_000_000,
+    )
+
+    intelligence = build_candidate_intelligence(
+        _candidate(),
+        _bars(1.0, step=0.02),
+        _bars(1.0, step=0.01),
+        [],
+        75,
+        fundamentals,
+    )
+
+    assert intelligence.scores.growth.score > 50
+    assert intelligence.scores.profitability.score < intelligence.scores.growth.score
+    assert intelligence.scores.financial_health.score > 50
+    assert intelligence.facts["cash_runway_years"] == 2.0
+    assert any(
+        "runway" in message.lower()
+        for message in intelligence.scores.financial_health.positives
+    )
