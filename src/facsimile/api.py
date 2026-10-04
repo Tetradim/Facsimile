@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -25,6 +26,7 @@ from .strategy import (
     default_presets,
     evaluate_strategy,
 )
+from .monitoring import MonitorStatus, get_watchlist_monitor
 from .models import (
     BreakoutCandidate,
     BreakoutConfig,
@@ -36,6 +38,7 @@ from .watchlists import (
     WatchlistCreate,
     WatchlistEvent,
     WatchlistRecord,
+    WatchlistMonitoringUpdate,
     WatchlistRefreshResponse,
     get_watchlist_store,
     refresh_watchlist,
@@ -47,13 +50,24 @@ from .universe import (
     evaluate_universe,
 )
 
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    monitor = get_watchlist_monitor()
+    await monitor.start()
+    try:
+        yield
+    finally:
+        await monitor.stop()
+
+
 app = FastAPI(
     title="Facsimile Breakout Scanner",
-    version="0.5.0",
+    version="0.6.0",
     description=(
         "Clean-room scanner and universe filtering service. "
         "No brokerage execution."
     ),
+    lifespan=lifespan,
 )
 
 
@@ -305,6 +319,42 @@ def create_watchlist(
     request: WatchlistCreate,
 ) -> WatchlistRecord:
     return get_watchlist_store().create(request)
+
+
+@app.patch(
+    "/v1/watchlists/{watchlist_id}/monitoring",
+    response_model=WatchlistRecord,
+)
+def update_watchlist_monitoring(
+    watchlist_id: str,
+    request: WatchlistMonitoringUpdate,
+) -> WatchlistRecord:
+    try:
+        return get_watchlist_store().update_monitoring(
+            watchlist_id,
+            request,
+        )
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail="Watchlist not found",
+        ) from exc
+
+
+@app.get(
+    "/v1/monitor/status",
+    response_model=MonitorStatus,
+)
+def monitor_status() -> MonitorStatus:
+    return get_watchlist_monitor().status()
+
+
+@app.post(
+    "/v1/monitor/tick",
+    response_model=list[WatchlistRecord],
+)
+async def monitor_tick() -> list[WatchlistRecord]:
+    return await get_watchlist_monitor().tick()
 
 
 @app.delete("/v1/watchlists/{watchlist_id}")
