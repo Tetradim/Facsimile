@@ -4,6 +4,17 @@ import {
   standaloneProviderStatus,
   type StandaloneScanRequest,
 } from "./standalone";
+import {
+  createStandaloneWatchlist,
+  deleteStandaloneWatchlist,
+  listStandaloneWatchlists,
+  refreshStandaloneWatchlist,
+  runStandaloneBacktest,
+  standaloneChart,
+  standaloneStrategyPresets,
+  standaloneWatchlistEvents,
+  type StandaloneBacktestRequest,
+} from "./standaloneResearch";
 
 const STORAGE_KEY = "facsimile.apiBaseUrl";
 const MODE_KEY = "facsimile.mobileMode";
@@ -65,7 +76,10 @@ async function standaloneFetch(
   path: string,
   init?: RequestInit,
 ): Promise<Response> {
-  if (path === "/health") {
+  const parsed = new URL(path, "https://facsimile.local");
+  const pathname = parsed.pathname;
+
+  if (pathname === "/health") {
     return jsonResponse({
       status: "ok",
       service: "facsimile-android-standalone",
@@ -73,16 +87,79 @@ async function standaloneFetch(
     });
   }
 
-  if (path === "/v1/live/providers") {
+  if (pathname === "/v1/live/providers") {
     return jsonResponse(standaloneProviderStatus());
   }
 
-  if (path === "/v1/live/scan/weekly-breakout") {
+  if (pathname === "/v1/live/scan/weekly-breakout") {
     const request: StandaloneScanRequest = init?.body
       ? JSON.parse(String(init.body))
       : {};
     const result = await runStandaloneWeeklyScan(request);
     return jsonResponse(result);
+  }
+
+  if (pathname === "/v1/strategies/presets") {
+    return jsonResponse(standaloneStrategyPresets());
+  }
+
+  if (pathname.startsWith("/v1/live/chart/")) {
+    const symbol = decodeURIComponent(
+      pathname.slice("/v1/live/chart/".length),
+    );
+    const weeks = Number(parsed.searchParams.get("weeks") ?? "104");
+    const result = await standaloneChart(
+      symbol,
+      Number.isFinite(weeks) ? weeks : 104,
+    );
+    return jsonResponse(result);
+  }
+
+  if (pathname === "/v1/backtest/weekly") {
+    const request: StandaloneBacktestRequest = init?.body
+      ? JSON.parse(String(init.body))
+      : {
+          profile: { symbol: "" },
+          weekly_bars: [],
+        };
+    const result = await runStandaloneBacktest(request);
+    return jsonResponse(result);
+  }
+
+  if (pathname === "/v1/watchlists" && (!init?.method || init.method === "GET")) {
+    return jsonResponse(listStandaloneWatchlists());
+  }
+
+  if (pathname === "/v1/watchlists" && init?.method === "POST") {
+    const body = init.body
+      ? JSON.parse(String(init.body))
+      : {};
+    return jsonResponse(createStandaloneWatchlist(body));
+  }
+
+  if (pathname.startsWith("/v1/watchlists/")) {
+    const parts = pathname.split("/").filter(Boolean);
+    const id = parts[2] ?? "";
+    const action = parts[3] ?? "";
+
+    if (action === "refresh" && init?.method === "POST") {
+      return jsonResponse(await refreshStandaloneWatchlist(id));
+    }
+
+    if (action === "events" && (!init?.method || init.method === "GET")) {
+      const limit = Number(parsed.searchParams.get("limit") ?? "100");
+      return jsonResponse(
+        standaloneWatchlistEvents(
+          id,
+          Number.isFinite(limit) ? limit : 100,
+        ),
+      );
+    }
+
+    if (!action && init?.method === "DELETE") {
+      deleteStandaloneWatchlist(id);
+      return jsonResponse({ status: "deleted", id });
+    }
   }
 
   return jsonResponse(
