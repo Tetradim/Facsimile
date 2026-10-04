@@ -3,13 +3,15 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
 
 from .breakout import WeeklyBreakoutEngine
+from .backtest import BacktestRequest, BacktestResponse, run_backtest
 from .contracts import ScanEnvelope, weekly_breakout_envelope
 from .live_data import (
+    LiveChartResponse,
     LiveNewsItem,
     LiveProfile,
     LiveScanRequest,
@@ -29,6 +31,14 @@ from .models import (
     CandidateState,
     FundamentalSnapshot,
     OHLCVBar,
+)
+from .watchlists import (
+    WatchlistCreate,
+    WatchlistEvent,
+    WatchlistRecord,
+    WatchlistRefreshResponse,
+    get_watchlist_store,
+    refresh_watchlist,
 )
 from .universe import (
     InstrumentProfile,
@@ -239,6 +249,26 @@ def live_news(symbol: str) -> list[LiveNewsItem]:
     return get_live_data_service().news_for_symbol(symbol)
 
 
+@app.get(
+    "/v1/live/chart/{symbol}",
+    response_model=LiveChartResponse,
+)
+def live_chart(
+    symbol: str,
+    weeks: int = 104,
+) -> LiveChartResponse:
+    try:
+        return get_live_data_service().chart_for_symbol(
+            symbol,
+            weeks=weeks,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=str(exc),
+        ) from exc
+
+
 @app.post(
     "/v1/live/scan/weekly-breakout",
     response_model=LiveScanResponse,
@@ -247,6 +277,89 @@ def live_scan_weekly_breakout(
     request: LiveScanRequest,
 ) -> LiveScanResponse:
     return get_live_data_service().scan_weekly_breakout(request)
+
+
+@app.post(
+    "/v1/backtest/weekly",
+    response_model=BacktestResponse,
+)
+def backtest_weekly(
+    request: BacktestRequest,
+) -> BacktestResponse:
+    return run_backtest(request)
+
+
+@app.get(
+    "/v1/watchlists",
+    response_model=list[WatchlistRecord],
+)
+def list_watchlists() -> list[WatchlistRecord]:
+    return get_watchlist_store().list()
+
+
+@app.post(
+    "/v1/watchlists",
+    response_model=WatchlistRecord,
+)
+def create_watchlist(
+    request: WatchlistCreate,
+) -> WatchlistRecord:
+    return get_watchlist_store().create(request)
+
+
+@app.delete("/v1/watchlists/{watchlist_id}")
+def delete_watchlist(
+    watchlist_id: str,
+) -> dict[str, str]:
+    try:
+        get_watchlist_store().delete(watchlist_id)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail="Watchlist not found",
+        ) from exc
+    return {"status": "deleted", "id": watchlist_id}
+
+
+@app.post(
+    "/v1/watchlists/{watchlist_id}/refresh",
+    response_model=WatchlistRefreshResponse,
+)
+def refresh_saved_watchlist(
+    watchlist_id: str,
+) -> WatchlistRefreshResponse:
+    try:
+        return refresh_watchlist(
+            get_watchlist_store(),
+            watchlist_id,
+            get_live_data_service(),
+        )
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail="Watchlist not found",
+        ) from exc
+
+
+@app.get(
+    "/v1/watchlists/{watchlist_id}/events",
+    response_model=list[WatchlistEvent],
+)
+def watchlist_events(
+    watchlist_id: str,
+    limit: int = 100,
+) -> list[WatchlistEvent]:
+    try:
+        get_watchlist_store().get(watchlist_id)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail="Watchlist not found",
+        ) from exc
+    return get_watchlist_store().events(
+        watchlist_id,
+        limit=limit,
+    )
 
 
 @app.post(
