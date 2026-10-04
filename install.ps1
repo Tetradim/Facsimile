@@ -49,6 +49,11 @@ Write-Host "[2/5] Installing Facsimile backend..." -ForegroundColor Green
 & $PythonExe -m pip install --upgrade pip
 & $PipExe install -e .
 
+if (-not (Test-Path ".env") -and (Test-Path ".env.example")) {
+    Copy-Item ".env.example" ".env"
+    Write-Host "Created .env for optional live-data API keys." -ForegroundColor Cyan
+}
+
 Write-Host "[3/5] Installing frontend dependencies..." -ForegroundColor Green
 Push-Location (Join-Path $RepoRoot "frontend")
 if (Test-Path "package-lock.json") {
