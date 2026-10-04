@@ -727,6 +727,17 @@ function IntelligenceResultsTable({
   );
 }
 
+type SavedScannerView = {
+  id: string;
+  name: string;
+  minPrice: string;
+  maxPrice: string;
+  sector: string;
+  newsDays: string;
+  requireNews: boolean;
+  columnPack: IntelligenceView;
+};
+
 function ValueScanner() {
   const [minPrice, setMinPrice] = useState("0.10");
   const [maxPrice, setMaxPrice] = useState("2.50");
@@ -737,6 +748,45 @@ function ValueScanner() {
   const [view, setView] = useState<IntelligenceView>("breakout");
   const [result, setResult] = useState<LiveScanResponse | null>(null);
   const [error, setError] = useState("");
+  const [savedViews, setSavedViews] = useState<SavedScannerView[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("facsimile.savedViews") || "[]") as SavedScannerView[];
+    } catch {
+      return [];
+    }
+  });
+
+  function persistSavedViews(next: SavedScannerView[]) {
+    setSavedViews(next);
+    localStorage.setItem("facsimile.savedViews", JSON.stringify(next));
+  }
+
+  function saveCurrentView() {
+    const saved: SavedScannerView = {
+      id: String(Date.now()),
+      name: sector + " $" + minPrice + "–$" + maxPrice + " · " + newsDays + "d",
+      minPrice,
+      maxPrice,
+      sector,
+      newsDays,
+      requireNews,
+      columnPack: view,
+    };
+    persistSavedViews([saved, ...savedViews].slice(0, 12));
+  }
+
+  function applySavedView(saved: SavedScannerView) {
+    setMinPrice(saved.minPrice);
+    setMaxPrice(saved.maxPrice);
+    setSector(saved.sector);
+    setNewsDays(saved.newsDays);
+    setRequireNews(saved.requireNews);
+    setView(saved.columnPack);
+  }
+
+  function removeSavedView(id: string) {
+    persistSavedViews(savedViews.filter((saved) => saved.id !== id));
+  }
 
   async function runLiveScan() {
     setLoading(true);
@@ -857,17 +907,48 @@ function ValueScanner() {
             <Sparkles size={16} />
             Medical Catalyst preset: 18% box · +2% breakout · 1.5× volume · ≤15% stop risk
           </div>
-          <button
-            className="button button--primary button--scan"
-            onClick={runLiveScan}
-            disabled={loading}
-          >
-            <Play size={16} fill="currentColor" />
-            {loading ? "Scanning Live…" : "Run Live Scan"}
-          </button>
+          <div className="scan-action-buttons">
+            <button className="button button--ghost" onClick={saveCurrentView}>
+              <Save size={16} />
+              Save View
+            </button>
+            <button
+              className="button button--primary button--scan"
+              onClick={runLiveScan}
+              disabled={loading}
+            >
+              <Play size={16} fill="currentColor" />
+              {loading ? "Scanning Live…" : "Run Live Scan"}
+            </button>
+          </div>
         </div>
         {error ? <div className="live-error">{error}</div> : null}
       </Panel>
+
+      {savedViews.length ? (
+        <Panel
+          title="Saved Screens"
+          subtitle="TradingView-style reusable filter and column-layout presets stored on this device."
+        >
+          <div className="saved-view-row">
+            {savedViews.map((saved) => (
+              <div className="saved-view-chip" key={saved.id}>
+                <button onClick={() => applySavedView(saved)}>
+                  <strong>{saved.name}</strong>
+                  <span>{saved.columnPack} view</span>
+                </button>
+                <button
+                  className="saved-view-remove"
+                  onClick={() => removeSavedView(saved.id)}
+                  aria-label={"Remove " + saved.name}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        </Panel>
+      ) : null}
 
       <div className="metrics-grid metrics-grid--compact">
         <MetricCard
