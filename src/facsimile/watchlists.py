@@ -28,6 +28,13 @@ class WatchlistCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     scan_request: LiveScanRequest
     enabled: bool = True
+    auto_refresh: bool = False
+    refresh_interval_minutes: int = Field(default=60, ge=15, le=1440)
+
+
+class WatchlistMonitoringUpdate(BaseModel):
+    auto_refresh: bool
+    refresh_interval_minutes: int = Field(default=60, ge=15, le=1440)
 
 
 class WatchlistRecord(BaseModel):
@@ -35,9 +42,12 @@ class WatchlistRecord(BaseModel):
     name: str
     scan_request: LiveScanRequest
     enabled: bool
+    auto_refresh: bool = False
+    refresh_interval_minutes: int = 60
     created_at: datetime
     updated_at: datetime
     last_refreshed_at: datetime | None = None
+    last_error: str | None = None
 
 
 class WatchlistSnapshot(BaseModel):
@@ -125,6 +135,22 @@ class WatchlistStore:
                 ON watchlist_events(watchlist_id, occurred_at DESC);
                 """
             )
+            existing = {
+                row["name"]
+                for row in db.execute("PRAGMA table_info(watchlists)").fetchall()
+            }
+            if "auto_refresh" not in existing:
+                db.execute(
+                    "ALTER TABLE watchlists ADD COLUMN auto_refresh INTEGER NOT NULL DEFAULT 0"
+                )
+            if "refresh_interval_minutes" not in existing:
+                db.execute(
+                    "ALTER TABLE watchlists ADD COLUMN refresh_interval_minutes INTEGER NOT NULL DEFAULT 60"
+                )
+            if "last_error" not in existing:
+                db.execute(
+                    "ALTER TABLE watchlists ADD COLUMN last_error TEXT"
+                )
 
     @staticmethod
     def _record(row: sqlite3.Row) -> WatchlistRecord:
@@ -133,6 +159,8 @@ class WatchlistStore:
             name=row["name"],
             scan_request=LiveScanRequest.model_validate_json(row["request_json"]),
             enabled=bool(row["enabled"]),
+            auto_refresh=bool(row["auto_refresh"]),
+            refresh_interval_minutes=int(row["refresh_interval_minutes"]),
             created_at=datetime.fromisoformat(row["created_at"]),
             updated_at=datetime.fromisoformat(row["updated_at"]),
             last_refreshed_at=(
@@ -140,6 +168,7 @@ class WatchlistStore:
                 if row["last_refreshed_at"]
                 else None
             ),
+            last_error=row["last_error"],
         )
 
     def create(self, request: WatchlistCreate) -> WatchlistRecord:
@@ -150,14 +179,17 @@ class WatchlistStore:
                 """
                 INSERT INTO watchlists (
                     id, name, request_json, enabled,
-                    created_at, updated_at, last_refreshed_at
-                ) VALUES (?, ?, ?, ?, ?, ?, NULL)
+                    auto_refresh, refresh_interval_minutes,
+                    created_at, updated_at, last_refreshed_at, last_error
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)
                 """,
                 (
                     identifier,
                     request.name.strip(),
                     request.scan_request.model_dump_json(),
                     1 if request.enabled else 0,
+                    1 if request.auto_refresh else 0,
+                    request.refresh_interval_minutes,
                     now.isoformat(),
                     now.isoformat(),
                 ),
@@ -180,6 +212,71 @@ class WatchlistStore:
         if row is None:
             raise KeyError(watchlist_id)
         return self._record(row)
+
+    def update_monitoring(
+        self,
+        watchlist_id: str,
+        request: WatchlistMonitoringUpdate,
+    ) -> WatchlistRecord:
+        now = _utc_now()
+        with self._connect() as db:
+            result = db.execute(
+                """
+                UPDATE watchlists
+                SET auto_refresh = ?,
+                    refresh_interval_minutes = ?,
+                    updated_at = ?,
+                    last_error = NULL
+                WHERE id = ?
+                """,
+                (
+                    1 if request.auto_refresh else 0,
+                    request.refresh_interval_minutes,
+                    now.isoformat(),
+                    watchlist_id,
+                ),
+            )
+            if result.rowcount == 0:
+                raise KeyError(watchlist_id)
+        return self.get(watchlist_id)
+
+    def due(self, now: datetime | None = None) -> list[WatchlistRecord]:
+        instant = now or _utc_now()
+        due: list[WatchlistRecord] = []
+        for watchlist in self.list():
+            if not (
+                watchlist.enabled
+                and watchlist.auto_refresh
+            ):
+                continue
+            if watchlist.last_refreshed_at is None:
+                due.append(watchlist)
+                continue
+            age_minutes = (
+                instant - watchlist.last_refreshed_at
+            ).total_seconds() / 60
+            if age_minutes >= watchlist.refresh_interval_minutes:
+                due.append(watchlist)
+        return due
+
+    def set_error(
+        self,
+        watchlist_id: str,
+        message: str | None,
+    ) -> None:
+        with self._connect() as db:
+            db.execute(
+                """
+                UPDATE watchlists
+                SET last_error = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    message,
+                    _utc_now().isoformat(),
+                    watchlist_id,
+                ),
+            )
 
     def delete(self, watchlist_id: str) -> None:
         with self._connect() as db:
@@ -290,7 +387,9 @@ class WatchlistStore:
             db.execute(
                 """
                 UPDATE watchlists
-                SET last_refreshed_at = ?, updated_at = ?
+                SET last_refreshed_at = ?,
+                    updated_at = ?,
+                    last_error = NULL
                 WHERE id = ?
                 """,
                 (now.isoformat(), now.isoformat(), watchlist_id),
