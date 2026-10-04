@@ -94,6 +94,14 @@ class LiveScanResponse(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class LiveChartResponse(BaseModel):
+    symbol: str
+    profile: LiveProfile
+    bars: list[OHLCVBar]
+    candidate: BreakoutCandidate
+    source: str
+
+
 MEDICAL_SECTORS = ("Healthcare",)
 CATALYST_TERMS = {
     "fda": 30,
@@ -1220,6 +1228,40 @@ class LiveDataService:
             except Exception as exc:
                 errors.append(f"{provider.name}: {exc}")
         raise RuntimeError("; ".join(errors) or "No OHLCV provider returned enough history")
+
+    def weekly_bars_for_symbol(
+        self,
+        symbol: str,
+    ) -> list[OHLCVBar]:
+        bars, _ = self._weekly_bars(symbol.upper())
+        return bars
+
+    def chart_for_symbol(
+        self,
+        symbol: str,
+        limit: int = 120,
+    ) -> LiveChartResponse:
+        symbol = symbol.strip().upper()
+        bars, source = self._weekly_bars(symbol)
+        profile = self.profile_for_symbol(symbol)
+        try:
+            fundamentals = self.yahoo.fundamentals(symbol)
+        except Exception:
+            fundamentals = None
+        candidate = WeeklyBreakoutEngine(
+            medical_breakout_config()
+        ).evaluate(
+            symbol,
+            bars,
+            fundamentals,
+        )
+        return LiveChartResponse(
+            symbol=symbol,
+            profile=profile,
+            bars=bars[-max(40, min(limit, 260)):],
+            candidate=candidate,
+            source=source,
+        )
 
     def _news(self, symbol: str) -> tuple[list[LiveNewsItem], list[str]]:
         items: list[LiveNewsItem] = []
