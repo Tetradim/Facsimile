@@ -2021,3 +2021,14 @@ button {
     min-width: 680px;
   }
 }
+
+
+.monitor-button {
+  min-width: 74px;
+}
+
+.monitor-button--on {
+  border-color: rgba(34, 197, 94, 0.32);
+  background: rgba(34, 197, 94, 0.10);
+  color: #75e49a;
+}
