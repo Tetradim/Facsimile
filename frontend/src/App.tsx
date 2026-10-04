@@ -446,6 +446,30 @@ type LiveScanRow = {
   };
   news: LiveNews[];
   catalyst_score: number;
+  rank: number | null;
+  intelligence: {
+    tier: "A+" | "A" | "B" | "W1" | "W2" | "X";
+    tier_reason: string;
+    scores: {
+      technical_health: { score: number; positives: string[]; cautions: string[] };
+      setup_quality: { score: number; positives: string[]; cautions: string[] };
+      breakout_trigger: { score: number; positives: string[]; cautions: string[] };
+      relative_strength: { score: number; positives: string[]; cautions: string[] };
+      catalyst: { score: number; positives: string[]; cautions: string[] };
+      fundamental_quality: { score: number; positives: string[]; cautions: string[] };
+      dilution_safety: { score: number; positives: string[]; cautions: string[] };
+      liquidity: { score: number; positives: string[]; cautions: string[] };
+      trade_risk: { score: number; positives: string[]; cautions: string[] };
+      overall: number;
+    };
+    facts: {
+      dilution_risk?: string;
+      recent_news_count?: number;
+      stop_risk_pct?: number | null;
+      box_bars?: number | null;
+      box_width_pct?: number | null;
+    };
+  } | null;
   data_sources: string[];
   error: string | null;
 };
@@ -471,6 +495,207 @@ function LiveStateBadge({ state }: { state: LiveScanRow["candidate"]["state"] })
   return <span className={className}>{label}</span>;
 }
 
+
+type IntelligenceView = "breakout" | "catalyst" | "risk";
+
+function TierBadge({ tier }: { tier: NonNullable<LiveScanRow["intelligence"]>["tier"] }) {
+  const className =
+    tier === "A+" || tier === "A" || tier === "B"
+      ? "tier tier--confirmed"
+      : tier === "W1" || tier === "W2"
+        ? "tier tier--watch"
+        : "tier tier--reject";
+  return <span className={className}>{tier}</span>;
+}
+
+function IntelligenceCell({
+  label,
+  score,
+}: {
+  label: string;
+  score: number | undefined;
+}) {
+  return (
+    <div className="intel-cell">
+      <span>{label}</span>
+      <strong className={scoreClass(score ?? 0)}>{score?.toFixed(0) ?? "—"}</strong>
+    </div>
+  );
+}
+
+function IntelligenceResultsTable({
+  rows,
+  view,
+}: {
+  rows: LiveScanRow[];
+  view: IntelligenceView;
+}) {
+  return (
+    <div className="table-wrap">
+      <table className="scanner-table live-table intelligence-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Tier</th>
+            <th>Symbol</th>
+            <th>Price</th>
+            <th>State</th>
+            {view === "breakout" ? (
+              <>
+                <th>Overall</th>
+                <th>Technical</th>
+                <th>Setup</th>
+                <th>Trigger</th>
+                <th>RS</th>
+              </>
+            ) : null}
+            {view === "catalyst" ? (
+              <>
+                <th>Catalyst</th>
+                <th>Fundamental</th>
+                <th>Dilution Safety</th>
+                <th>Dilution Risk</th>
+                <th>Recent News</th>
+              </>
+            ) : null}
+            {view === "risk" ? (
+              <>
+                <th>Trade Risk</th>
+                <th>Liquidity</th>
+                <th>Stop Risk</th>
+                <th>Box</th>
+                <th>Sources</th>
+              </>
+            ) : null}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => {
+            const intelligence = row.intelligence;
+            const scores = intelligence?.scores;
+            const latestNews = row.news[0];
+            return (
+              <tr key={row.profile.symbol}>
+                <td className="numeric rank-cell">{row.rank ?? "—"}</td>
+                <td>{intelligence ? <TierBadge tier={intelligence.tier} /> : "—"}</td>
+                <td>
+                  <div className="symbol-cell symbol-cell--intel">
+                    <div>
+                      <strong>{row.profile.symbol}</strong>
+                      <span>{row.profile.company}</span>
+                    </div>
+                    {intelligence ? (
+                      <details className="why-details">
+                        <summary>Why?</summary>
+                        <div className="why-panel">
+                          <strong>{intelligence.tier_reason}</strong>
+                          {[
+                            ["Technical", scores?.technical_health],
+                            ["Setup", scores?.setup_quality],
+                            ["Trigger", scores?.breakout_trigger],
+                            ["RS", scores?.relative_strength],
+                            ["Catalyst", scores?.catalyst],
+                            ["Dilution", scores?.dilution_safety],
+                            ["Liquidity", scores?.liquidity],
+                            ["Risk", scores?.trade_risk],
+                          ].map(([name, evidence]) => {
+                            const item = evidence as
+                              | { score: number; positives: string[]; cautions: string[] }
+                              | undefined;
+                            if (!item) return null;
+                            return (
+                              <div className="why-score" key={String(name)}>
+                                <span>{String(name)} {item.score.toFixed(0)}</span>
+                                {item.positives.slice(0, 2).map((text) => (
+                                  <small className="positive" key={text}>✓ {text}</small>
+                                ))}
+                                {item.cautions.slice(0, 2).map((text) => (
+                                  <small className="negative" key={text}>⚠ {text}</small>
+                                ))}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </details>
+                    ) : null}
+                  </div>
+                </td>
+                <td className="numeric">${row.profile.price.toFixed(4)}</td>
+                <td><LiveStateBadge state={row.candidate.state} /></td>
+
+                {view === "breakout" ? (
+                  <>
+                    <td><IntelligenceCell label="" score={scores?.overall} /></td>
+                    <td><IntelligenceCell label="" score={scores?.technical_health.score} /></td>
+                    <td><IntelligenceCell label="" score={scores?.setup_quality.score} /></td>
+                    <td><IntelligenceCell label="" score={scores?.breakout_trigger.score} /></td>
+                    <td><IntelligenceCell label="" score={scores?.relative_strength.score} /></td>
+                  </>
+                ) : null}
+
+                {view === "catalyst" ? (
+                  <>
+                    <td><IntelligenceCell label="" score={scores?.catalyst.score} /></td>
+                    <td><IntelligenceCell label="" score={scores?.fundamental_quality.score} /></td>
+                    <td><IntelligenceCell label="" score={scores?.dilution_safety.score} /></td>
+                    <td>
+                      <span className={"risk-label risk-label--" + (intelligence?.facts.dilution_risk ?? "unknown")}>
+                        {(intelligence?.facts.dilution_risk ?? "unknown").toUpperCase()}
+                      </span>
+                    </td>
+                    <td className="news-cell">
+                      {latestNews ? (
+                        <>
+                          {latestNews.url ? (
+                            <a href={latestNews.url} target="_blank" rel="noreferrer">
+                              {latestNews.title}
+                            </a>
+                          ) : (
+                            <span>{latestNews.title}</span>
+                          )}
+                          <small>
+                            {latestNews.publisher || latestNews.source}
+                            {latestNews.published_at
+                              ? " · " + new Date(latestNews.published_at).toLocaleDateString()
+                              : ""}
+                          </small>
+                        </>
+                      ) : (
+                        <span className="muted">No recent item</span>
+                      )}
+                    </td>
+                  </>
+                ) : null}
+
+                {view === "risk" ? (
+                  <>
+                    <td><IntelligenceCell label="" score={scores?.trade_risk.score} /></td>
+                    <td><IntelligenceCell label="" score={scores?.liquidity.score} /></td>
+                    <td className="numeric">
+                      {intelligence?.facts.stop_risk_pct != null
+                        ? (intelligence.facts.stop_risk_pct * 100).toFixed(1) + "%"
+                        : "—"}
+                    </td>
+                    <td className="numeric">
+                      {intelligence?.facts.box_bars ?? "—"}w ·{" "}
+                      {intelligence?.facts.box_width_pct != null
+                        ? (intelligence.facts.box_width_pct * 100).toFixed(1) + "%"
+                        : "—"}
+                    </td>
+                    <td className="sources-cell">
+                      {row.data_sources.map((source) => <span key={source}>{source}</span>)}
+                    </td>
+                  </>
+                ) : null}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function ValueScanner() {
   const [minPrice, setMinPrice] = useState("0.10");
   const [maxPrice, setMaxPrice] = useState("2.50");
@@ -478,6 +703,7 @@ function ValueScanner() {
   const [requireNews, setRequireNews] = useState(true);
   const [newsDays, setNewsDays] = useState("14");
   const [loading, setLoading] = useState(false);
+  const [view, setView] = useState<IntelligenceView>("breakout");
   const [result, setResult] = useState<LiveScanResponse | null>(null);
   const [error, setError] = useState("");
 
@@ -677,74 +903,24 @@ function ValueScanner() {
             Screening the universe, retrieving news and filings, downloading weekly history, and scoring candidates…
           </div>
         ) : rows.length ? (
-          <div className="table-wrap">
-            <table className="scanner-table live-table">
-              <thead>
-                <tr>
-                  <th>Symbol</th>
-                  <th>Live Price</th>
-                  <th>Sector / Industry</th>
-                  <th>State</th>
-                  <th>Overall</th>
-                  <th>Breakout</th>
-                  <th>Risk</th>
-                  <th>Catalyst</th>
-                  <th>Recent News</th>
-                  <th>Sources</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row) => {
-                  const scores = row.candidate.scores;
-                  const latestNews = row.news[0];
-                  return (
-                    <tr key={row.profile.symbol}>
-                      <td>
-                        <div className="symbol-cell">
-                          <div>
-                            <strong>{row.profile.symbol}</strong>
-                            <span>{row.profile.company}</span>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="numeric">${row.profile.price.toFixed(4)}</td>
-                      <td>
-                        <div className="taxonomy-cell">
-                          <span>{row.profile.sector || "—"}</span>
-                          <small>{row.profile.industry || row.profile.exchange || "—"}</small>
-                        </div>
-                      </td>
-                      <td><LiveStateBadge state={row.candidate.state} /></td>
-                      <td><span className={scoreClass(scores?.overall ?? 0)}>{scores?.overall?.toFixed(0) ?? "—"}</span></td>
-                      <td><span className={scoreClass(scores?.breakout ?? 0)}>{scores?.breakout?.toFixed(0) ?? "—"}</span></td>
-                      <td><span className={scoreClass(scores?.risk ?? 0)}>{scores?.risk?.toFixed(0) ?? "—"}</span></td>
-                      <td><span className={scoreClass(row.catalyst_score)}>{row.catalyst_score.toFixed(0)}</span></td>
-                      <td className="news-cell">
-                        {latestNews ? (
-                          <>
-                            {latestNews.url ? (
-                              <a href={latestNews.url} target="_blank" rel="noreferrer">{latestNews.title}</a>
-                            ) : (
-                              <span>{latestNews.title}</span>
-                            )}
-                            <small>
-                              {latestNews.publisher || latestNews.source}
-                              {latestNews.published_at ? ` · ${new Date(latestNews.published_at).toLocaleDateString()}` : ""}
-                            </small>
-                          </>
-                        ) : (
-                          <span className="muted">No recent item</span>
-                        )}
-                      </td>
-                      <td className="sources-cell">
-                        {row.data_sources.map((source) => <span key={source}>{source}</span>)}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <>
+            <div className="column-pack-tabs">
+              {[
+                ["breakout", "Breakout View"],
+                ["catalyst", "Catalyst View"],
+                ["risk", "Risk View"],
+              ].map(([id, label]) => (
+                <button
+                  key={id}
+                  className={view === id ? "active" : ""}
+                  onClick={() => setView(id as IntelligenceView)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <IntelligenceResultsTable rows={rows} view={view} />
+          </>
         ) : (
           <div className="empty-live-state">
             <Radar size={24} />
