@@ -1,3 +1,4 @@
+/// <reference types="@capacitor/background-runner" />
 import type { CapacitorConfig } from "@capacitor/cli";
 
 const config: CapacitorConfig = {
@@ -11,6 +12,14 @@ const config: CapacitorConfig = {
   plugins: {
     CapacitorHttp: {
       enabled: true,
+    },
+    BackgroundRunner: {
+      label: "com.tetradim.facsimile.monitor",
+      src: "runners/background.js",
+      event: "monitorWatchlists",
+      repeat: true,
+      interval: 15,
+      autoStart: true,
     },
   },
 };
