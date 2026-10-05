@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from .models import BreakoutCandidate
 from .opening_breakout import OpeningBreakoutCandidate
+from .short_squeeze import ShortSqueezeCandidate
 
 
 class ScannerFamily(str, Enum):
@@ -82,6 +83,27 @@ def opening_breakout_envelope(
                 if candidate.opening_range is not None
                 else None
             ),
+        },
+        payload=candidate.model_dump(mode="json"),
+    )
+
+
+def short_squeeze_envelope(
+    candidate: ShortSqueezeCandidate,
+) -> ScanEnvelope:
+    return ScanEnvelope(
+        family=ScannerFamily.SHORT_SQUEEZE,
+        symbol=candidate.symbol,
+        observed_at=candidate.as_of,
+        status=candidate.state.value,
+        score=candidate.scores.overall,
+        reasons=candidate.reasons,
+        evidence={
+            "gates": [
+                gate.model_dump(mode="json")
+                for gate in candidate.gates
+            ],
+            "source_evidence": candidate.evidence,
         },
         payload=candidate.model_dump(mode="json"),
     )
