@@ -82,7 +82,7 @@ app = FastAPI(
     title="Facsimile Breakout Scanner",
     version="0.2.0",
     description=(
-        "Clean-room scanner and universe filtering service. "
+        "Standalone multi-strategy scanner, research, and universe filtering service. "
         "No brokerage execution."
     ),
 )
