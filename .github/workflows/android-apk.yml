@@ -8,6 +8,7 @@ on:
       - feature/android-standalone
       - feature/android-intelligence-workbench
       - feature/android-watchlists-backtest-charts
+      - feature/android-trade-management-simulation
     paths:
       - "frontend/**"
       - ".github/workflows/android-apk.yml"
@@ -71,7 +72,7 @@ jobs:
       - name: Upload Facsimile APK
         uses: actions/upload-artifact@v4
         with:
-          name: facsimile-android-research
+          name: facsimile-android-trade-manager
           path: |
             artifacts/facsimile-android-debug.apk
             artifacts/facsimile-android-debug.apk.sha256
