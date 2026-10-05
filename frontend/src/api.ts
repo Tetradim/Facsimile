@@ -15,6 +15,14 @@ import {
   standaloneWatchlistEvents,
   type StandaloneBacktestRequest,
 } from "./standaloneResearch";
+import {
+  createStandalonePosition,
+  deleteStandalonePosition,
+  listStandalonePositions,
+  refreshStandalonePosition,
+  runStandaloneMonteCarlo,
+  type MobileMonteCarloRequest,
+} from "./standaloneTrade";
 
 const STORAGE_KEY = "facsimile.apiBaseUrl";
 const MODE_KEY = "facsimile.mobileMode";
@@ -124,6 +132,39 @@ async function standaloneFetch(
         };
     const result = await runStandaloneBacktest(request);
     return jsonResponse(result);
+  }
+
+  if (pathname === "/v1/simulation/monte-carlo" && init?.method === "POST") {
+    const request: MobileMonteCarloRequest = init?.body
+      ? JSON.parse(String(init.body))
+      : { returns_pct: [] };
+    return jsonResponse(runStandaloneMonteCarlo(request));
+  }
+
+  if (pathname === "/v1/positions" && (!init?.method || init.method === "GET")) {
+    return jsonResponse(listStandalonePositions());
+  }
+
+  if (pathname === "/v1/positions" && init?.method === "POST") {
+    const body = init.body
+      ? JSON.parse(String(init.body))
+      : {};
+    return jsonResponse(createStandalonePosition(body));
+  }
+
+  if (pathname.startsWith("/v1/positions/")) {
+    const parts = pathname.split("/").filter(Boolean);
+    const id = parts[2] ?? "";
+    const action = parts[3] ?? "";
+
+    if (action === "refresh" && init?.method === "POST") {
+      return jsonResponse(await refreshStandalonePosition(id));
+    }
+
+    if (!action && init?.method === "DELETE") {
+      deleteStandalonePosition(id);
+      return jsonResponse({ deleted: true });
+    }
   }
 
   if (pathname === "/v1/watchlists" && (!init?.method || init.method === "GET")) {
