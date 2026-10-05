@@ -19,6 +19,17 @@ from .live_data import (
     get_live_data_service,
 )
 from .backtest import BacktestRequest, BacktestResponse, run_backtest
+from .positions import (
+    PositionRefreshResponse,
+    TrackedPosition,
+    TrackedPositionCreate,
+    get_position_store,
+)
+from .simulation import (
+    MonteCarloRequest,
+    MonteCarloResponse,
+    run_monte_carlo,
+)
 from .watchlists import (
     Watchlist,
     WatchlistCreate,
@@ -267,6 +278,69 @@ def backtest_weekly_breakout(
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post(
+    "/v1/simulation/monte-carlo",
+    response_model=MonteCarloResponse,
+)
+def simulate_monte_carlo(
+    request: MonteCarloRequest,
+) -> MonteCarloResponse:
+    try:
+        return run_monte_carlo(request)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get(
+    "/v1/positions",
+    response_model=list[TrackedPosition],
+)
+def list_positions() -> list[TrackedPosition]:
+    return get_position_store().list()
+
+
+@app.post(
+    "/v1/positions",
+    response_model=TrackedPosition,
+)
+def create_position(
+    request: TrackedPositionCreate,
+) -> TrackedPosition:
+    try:
+        return get_position_store().create(request)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.delete("/v1/positions/{position_id}")
+def delete_position(
+    position_id: str,
+) -> dict[str, bool]:
+    deleted = get_position_store().delete(position_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Position not found")
+    return {"deleted": True}
+
+
+@app.post(
+    "/v1/positions/{position_id}/refresh",
+    response_model=PositionRefreshResponse,
+)
+def refresh_position(
+    position_id: str,
+) -> PositionRefreshResponse:
+    try:
+        return get_position_store().refresh(
+            position_id,
+            get_live_data_service(),
+        )
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail="Position not found",
+        ) from exc
 
 
 @app.get(
