@@ -68,6 +68,12 @@ type OpeningResponse = {
   warnings: string[];
 };
 
+type OpeningBatchResponse = {
+  generated_at: string;
+  rows: OpeningResponse[];
+  errors: string[];
+};
+
 function scoreClass(score: number): string {
   if (score >= 85) return "score score--hot";
   if (score >= 70) return "score score--good";
@@ -78,6 +84,9 @@ export function OpeningBreakoutPage() {
   const [symbol, setSymbol] = useState("RKLB");
   const [data, setData] = useState<OpeningResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  const [focusSymbols, setFocusSymbols] = useState("RKLB,LUNR,ASTS,RXRX");
+  const [batchLoading, setBatchLoading] = useState(false);
+  const [batch, setBatch] = useState<OpeningBatchResponse | null>(null);
   const [error, setError] = useState("");
 
   async function load(next = symbol) {
@@ -102,6 +111,34 @@ export function OpeningBreakoutPage() {
   useEffect(() => {
     void load("RKLB");
   }, []);
+
+  async function runFocusList() {
+    const symbols = focusSymbols
+      .split(",")
+      .map((value) => value.trim().toUpperCase())
+      .filter(Boolean)
+      .slice(0, 12);
+    if (!symbols.length) return;
+    setBatchLoading(true);
+    setError("");
+    try {
+      const response = await fetch("/v1/live/opening-breakout/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          symbols,
+          include_rejected: true,
+        }),
+      });
+      if (!response.ok) throw new Error(await response.text());
+      setBatch((await response.json()) as OpeningBatchResponse);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Focus-list scan failed.");
+    } finally {
+      setBatchLoading(false);
+    }
+  }
+
 
   const volumeData = useMemo(
     () =>
@@ -148,6 +185,102 @@ export function OpeningBreakoutPage() {
       </div>
 
       {error ? <div className="live-error">{error}</div> : null}
+
+      <section className="panel opening-focus-panel">
+        <div className="panel__header">
+          <div>
+            <div className="panel__title">Opening Breakout Focus List</div>
+            <div className="panel__subtitle">
+              Controlled live scan · maximum 12 symbols · four concurrent intraday fetches
+            </div>
+          </div>
+        </div>
+        <div className="panel__body">
+          <div className="opening-focus-controls">
+            <label className="field">
+              <span>Symbols</span>
+              <input
+                value={focusSymbols}
+                onChange={(event) => setFocusSymbols(event.target.value.toUpperCase())}
+                placeholder="RKLB,LUNR,ASTS"
+              />
+            </label>
+            <button
+              className="button button--primary"
+              onClick={runFocusList}
+              disabled={batchLoading}
+            >
+              {batchLoading ? <Activity size={15} /> : <Play size={15} fill="currentColor" />}
+              {batchLoading ? "Scanning…" : "Scan focus list"}
+            </button>
+          </div>
+
+          {batch?.rows.length ? (
+            <div className="table-wrap opening-focus-results">
+              <table className="scanner-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Symbol</th>
+                    <th>State</th>
+                    <th>Overall</th>
+                    <th>OR High</th>
+                    <th>RVOL</th>
+                    <th>VWAP</th>
+                    <th>Stop Risk</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {batch.rows.map((row, index) => (
+                    <tr
+                      key={row.symbol}
+                      className="opening-focus-row"
+                      onClick={() => void load(row.symbol)}
+                    >
+                      <td>{index + 1}</td>
+                      <td><strong>{row.symbol}</strong></td>
+                      <td>{row.candidate.state.toUpperCase()}</td>
+                      <td>{row.candidate.scores?.overall.toFixed(0) ?? "—"}</td>
+                      <td>
+                        {row.candidate.opening_range
+                          ? "$" + row.candidate.opening_range.high.toFixed(2)
+                          : "—"}
+                      </td>
+                      <td>
+                        {row.candidate.relative_volume != null
+                          ? row.candidate.relative_volume.toFixed(2) + "×"
+                          : "—"}
+                      </td>
+                      <td>
+                        {row.candidate.vwap != null
+                          ? "$" + row.candidate.vwap.toFixed(2)
+                          : "—"}
+                      </td>
+                      <td>
+                        {row.candidate.stop_risk_pct != null
+                          ? (row.candidate.stop_risk_pct * 100).toFixed(1) + "%"
+                          : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : batch ? (
+            <div className="empty-live-state">
+              <strong>No rows returned.</strong>
+              <span>Check the symbols, session timing, or provider warnings.</span>
+            </div>
+          ) : null}
+
+          {batch?.errors.length ? (
+            <div className="warning-strip">
+              {batch.errors.map((item) => <span key={item}>{item}</span>)}
+            </div>
+          ) : null}
+        </div>
+      </section>
+
       {data?.warnings.length ? (
         <div className="warning-strip">
           {data.warnings.map((warning) => <span key={warning}>{warning}</span>)}
