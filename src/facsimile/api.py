@@ -16,6 +16,8 @@ from .opening_breakout import (
 from .contracts import ScanEnvelope, opening_breakout_envelope, weekly_breakout_envelope
 from .live_data import (
     LiveChartResponse,
+    LiveOpeningBatchRequest,
+    LiveOpeningBatchResponse,
     LiveOpeningBreakoutResponse,
     LiveNewsItem,
     LiveProfile,
@@ -283,6 +285,16 @@ def live_opening_breakout(
     symbol: str,
 ) -> LiveOpeningBreakoutResponse:
     return get_live_data_service().live_opening_breakout(symbol)
+
+
+@app.post(
+    "/v1/live/opening-breakout/batch",
+    response_model=LiveOpeningBatchResponse,
+)
+def live_opening_breakout_batch(
+    request: LiveOpeningBatchRequest,
+) -> LiveOpeningBatchResponse:
+    return get_live_data_service().scan_opening_breakouts(request)
 
 
 @app.post(
