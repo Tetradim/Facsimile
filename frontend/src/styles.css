@@ -1991,3 +1991,37 @@ button {
     width: 100%;
   }
 }
+
+
+.opening-focus-panel {
+  margin-bottom: 14px;
+}
+
+.opening-focus-controls {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.opening-focus-results {
+  margin-top: 12px;
+}
+
+.opening-focus-row {
+  cursor: pointer;
+}
+
+.opening-focus-row:hover {
+  background: rgba(79, 140, 255, 0.06);
+}
+
+@media (max-width: 900px) {
+  .opening-focus-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .opening-focus-controls .button {
+    width: 100%;
+  }
+}
