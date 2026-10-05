@@ -1,8 +1,8 @@
 # Facsimile
 
-Clean-room market scanner service for weekly consolidation breakouts and future scanner families intended for eventual integration into **Sentinel Edge**.
+Standalone market-scanning and research workstation for weekly breakouts, opening breakouts, short-squeeze analysis, and future scanner families, with optional future integration into **Sentinel Edge**.
 
-Facsimile is deliberately standalone today. It does not depend on or integrate with any other Sentinel-line bot.
+Facsimile is an independent bot and workstation. It does not depend on or integrate with any other Sentinel-line bot.
 
 ## Current scope
 
