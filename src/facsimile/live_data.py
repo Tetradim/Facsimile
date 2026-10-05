@@ -21,6 +21,12 @@ from .opening_breakout import (
     OpeningBreakoutConfig,
     OpeningBreakoutEngine,
 )
+from .short_squeeze import (
+    ShortSqueezeCandidate,
+    ShortSqueezeConfig,
+    ShortSqueezeEngine,
+    ShortSqueezeSnapshot,
+)
 from .catalysts import (
     CatalystEvidence,
     StructuredCatalystService,
@@ -128,6 +134,26 @@ class LiveOpeningBatchRequest(BaseModel):
 class LiveOpeningBatchResponse(BaseModel):
     generated_at: datetime
     rows: list[LiveOpeningBreakoutResponse]
+    errors: list[str] = Field(default_factory=list)
+
+
+class LiveShortSqueezeResponse(BaseModel):
+    symbol: str
+    profile: LiveProfile
+    candidate: ShortSqueezeCandidate
+    source: str
+    warnings: list[str] = Field(default_factory=list)
+
+
+class LiveShortSqueezeBatchRequest(BaseModel):
+    symbols: list[str] = Field(min_length=1, max_length=20)
+    config: ShortSqueezeConfig | None = None
+    include_rejected: bool = False
+
+
+class LiveShortSqueezeBatchResponse(BaseModel):
+    generated_at: datetime
+    rows: list[LiveShortSqueezeResponse]
     errors: list[str] = Field(default_factory=list)
 
 
@@ -325,6 +351,116 @@ class YahooProvider:
             market_cap=_as_float(info.get("marketCap")),
             source="yahoo",
         )
+
+    def short_squeeze_snapshot(
+        self,
+        symbol: str,
+    ) -> tuple[ShortSqueezeSnapshot, LiveProfile]:
+        symbol = symbol.strip().upper()
+        ticker = yf.Ticker(symbol)
+        info = ticker.get_info() or {}
+
+        short_float = _as_float(info.get("shortPercentOfFloat"))
+        days_to_cover = _as_float(info.get("shortRatio"))
+        if short_float is None or days_to_cover is None:
+            raise RuntimeError(
+                f"Reported short-float and days-to-cover data unavailable for {symbol}"
+            )
+
+        profile = self.profile(
+            symbol,
+            _as_float(info.get("currentPrice"))
+            or _as_float(info.get("regularMarketPrice")),
+        )
+        bars = self.daily_bars(symbol)
+        if len(bars) < 22:
+            raise RuntimeError(
+                f"Insufficient daily history for squeeze trigger metrics on {symbol}"
+            )
+
+        current = bars[-1]
+        prior = bars[:-1]
+        recent20 = prior[-20:]
+        average_volume = (
+            sum(bar.volume for bar in recent20) / len(recent20)
+            if recent20
+            else 0.0
+        )
+        relative_volume = (
+            current.volume / average_volume
+            if average_volume > 0
+            else None
+        )
+        average_daily_dollar_volume = (
+            sum(bar.close * bar.volume for bar in recent20)
+            / len(recent20)
+            if recent20
+            else None
+        )
+
+        return_5d = (
+            current.close / bars[-6].close - 1.0
+            if len(bars) >= 6 and bars[-6].close > 0
+            else None
+        )
+        return_20d = (
+            current.close / bars[-21].close - 1.0
+            if len(bars) >= 21 and bars[-21].close > 0
+            else None
+        )
+        prior_20_high = max(bar.high for bar in recent20)
+        breakout_pct = (
+            current.close / prior_20_high - 1.0
+            if prior_20_high > 0
+            else None
+        )
+
+        high_52 = _as_float(info.get("fiftyTwoWeekHigh"))
+        if high_52 is None:
+            high_52 = max(bar.high for bar in bars[-252:])
+        distance_to_high = (
+            max(0.0, (high_52 - current.close) / high_52)
+            if high_52 and high_52 > 0
+            else None
+        )
+
+        short_interest_date = _utc_from_epoch(
+            info.get("dateShortInterest")
+        )
+        previous_short_date = _utc_from_epoch(
+            info.get("sharesShortPreviousMonthDate")
+        )
+        source_evidence = {
+            "short_interest": "Yahoo Finance reported short-interest metadata",
+            "market_trigger": "Yahoo Finance daily OHLCV",
+        }
+        if short_interest_date is not None:
+            source_evidence["short_interest_as_of"] = (
+                short_interest_date.date().isoformat()
+            )
+        if previous_short_date is not None:
+            source_evidence["prior_short_interest_as_of"] = (
+                previous_short_date.date().isoformat()
+            )
+
+        snapshot = ShortSqueezeSnapshot(
+            symbol=symbol,
+            as_of=current.timestamp,
+            price=current.close,
+            short_float_pct=short_float,
+            days_to_cover=days_to_cover,
+            float_shares=_as_float(info.get("floatShares")),
+            relative_volume=relative_volume,
+            average_daily_dollar_volume=average_daily_dollar_volume,
+            borrow_fee_pct=None,
+            utilization_pct=None,
+            return_5d_pct=return_5d,
+            return_20d_pct=return_20d,
+            breakout_pct=breakout_pct,
+            distance_to_52w_high_pct=distance_to_high,
+            source_evidence=source_evidence,
+        )
+        return snapshot, profile
 
     def fundamentals(self, symbol: str) -> FundamentalSnapshot | None:
         info = yf.Ticker(symbol).get_info() or {}
@@ -1394,6 +1530,84 @@ class LiveDataService:
 
         rows.sort(key=rank, reverse=True)
         return LiveOpeningBatchResponse(
+            generated_at=datetime.now(timezone.utc),
+            rows=rows,
+            errors=errors,
+        )
+
+    def live_short_squeeze(
+        self,
+        symbol: str,
+        config: ShortSqueezeConfig | None = None,
+    ) -> LiveShortSqueezeResponse:
+        snapshot, profile = self.yahoo.short_squeeze_snapshot(symbol)
+        candidate = ShortSqueezeEngine(config).evaluate(snapshot)
+        warnings = [
+            "Borrow fee and utilization are not available from the zero-key "
+            "Yahoo source, so the Borrow score remains neutral unless another "
+            "provider is added."
+        ]
+        return LiveShortSqueezeResponse(
+            symbol=snapshot.symbol,
+            profile=profile,
+            candidate=candidate,
+            source="Yahoo Finance short-interest metadata + daily OHLCV",
+            warnings=warnings,
+        )
+
+    def scan_short_squeezes(
+        self,
+        request: LiveShortSqueezeBatchRequest,
+    ) -> LiveShortSqueezeBatchResponse:
+        symbols: list[str] = []
+        seen: set[str] = set()
+        for raw in request.symbols:
+            symbol = raw.strip().upper()
+            if symbol and symbol not in seen:
+                seen.add(symbol)
+                symbols.append(symbol)
+
+        rows: list[LiveShortSqueezeResponse] = []
+        errors: list[str] = []
+        workers = min(4, max(1, len(symbols)))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {
+                pool.submit(
+                    self.live_short_squeeze,
+                    symbol,
+                    request.config,
+                ): symbol
+                for symbol in symbols
+            }
+            for future in as_completed(futures):
+                symbol = futures[future]
+                try:
+                    row = future.result()
+                except Exception as exc:
+                    errors.append(f"{symbol}: {exc}")
+                    continue
+                if (
+                    request.include_rejected
+                    or row.candidate.state.value != "rejected"
+                ):
+                    rows.append(row)
+
+        state_weight = {
+            "confirmed": 2.0,
+            "developing": 1.0,
+            "rejected": 0.0,
+        }
+        rows.sort(
+            key=lambda row: (
+                state_weight[row.candidate.state.value],
+                row.candidate.scores.overall,
+                row.candidate.scores.pressure,
+                row.candidate.scores.trigger,
+                row.candidate.scores.liquidity,
+            ),
+            reverse=True,
+        )
+        return LiveShortSqueezeBatchResponse(
             generated_at=datetime.now(timezone.utc),
             rows=rows,
             errors=errors,
