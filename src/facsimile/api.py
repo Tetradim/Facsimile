@@ -13,7 +13,18 @@ from .opening_breakout import (
     OpeningBreakoutConfig,
     OpeningBreakoutEngine,
 )
-from .contracts import ScanEnvelope, opening_breakout_envelope, weekly_breakout_envelope
+from .short_squeeze import (
+    ShortSqueezeCandidate,
+    ShortSqueezeConfig,
+    ShortSqueezeEngine,
+    ShortSqueezeSnapshot,
+)
+from .contracts import (
+    ScanEnvelope,
+    opening_breakout_envelope,
+    short_squeeze_envelope,
+    weekly_breakout_envelope,
+)
 from .live_data import (
     LiveChartResponse,
     LiveOpeningBatchRequest,
@@ -464,6 +475,32 @@ def value_scan_universe(
     """Operator-friendly alias for price/taxonomy universe filtering."""
 
     return _filter_market_universe(request)
+
+
+class ShortSqueezeRequest(BaseModel):
+    snapshot: ShortSqueezeSnapshot
+    config: ShortSqueezeConfig | None = None
+
+
+@app.post(
+    "/v1/scan/short-squeeze",
+    response_model=ShortSqueezeCandidate,
+)
+def scan_short_squeeze(
+    request: ShortSqueezeRequest,
+) -> ShortSqueezeCandidate:
+    return ShortSqueezeEngine(request.config).evaluate(request.snapshot)
+
+
+@app.post(
+    "/v1/scan/short-squeeze/envelope",
+    response_model=ScanEnvelope,
+)
+def scan_short_squeeze_envelope(
+    request: ShortSqueezeRequest,
+) -> ScanEnvelope:
+    candidate = scan_short_squeeze(request)
+    return short_squeeze_envelope(candidate)
 
 
 @app.post(
