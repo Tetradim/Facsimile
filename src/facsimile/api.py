@@ -34,6 +34,9 @@ from .live_data import (
     LiveProfile,
     LiveScanRequest,
     LiveScanResponse,
+    LiveShortSqueezeBatchRequest,
+    LiveShortSqueezeBatchResponse,
+    LiveShortSqueezeResponse,
     ProviderStatus,
     get_live_data_service,
 )
@@ -286,6 +289,26 @@ def live_chart(
     limit: int = 120,
 ) -> LiveChartResponse:
     return get_live_data_service().chart_for_symbol(symbol, limit)
+
+
+@app.get(
+    "/v1/live/short-squeeze/{symbol}",
+    response_model=LiveShortSqueezeResponse,
+)
+def live_short_squeeze(
+    symbol: str,
+) -> LiveShortSqueezeResponse:
+    return get_live_data_service().live_short_squeeze(symbol)
+
+
+@app.post(
+    "/v1/live/short-squeeze/batch",
+    response_model=LiveShortSqueezeBatchResponse,
+)
+def live_short_squeeze_batch(
+    request: LiveShortSqueezeBatchRequest,
+) -> LiveShortSqueezeBatchResponse:
+    return get_live_data_service().scan_short_squeezes(request)
 
 
 @app.get(
