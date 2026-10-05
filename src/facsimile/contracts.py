@@ -7,6 +7,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from .models import BreakoutCandidate
+from .opening_breakout import OpeningBreakoutCandidate
 
 
 class ScannerFamily(str, Enum):
@@ -51,6 +52,36 @@ def weekly_breakout_envelope(
             "metrics": candidate.metrics,
             "universe": candidate.metadata.get("universe"),
             "profile": candidate.metadata.get("profile"),
+        },
+        payload=candidate.model_dump(mode="json"),
+    )
+
+
+def opening_breakout_envelope(
+    candidate: OpeningBreakoutCandidate,
+) -> ScanEnvelope:
+    return ScanEnvelope(
+        family=ScannerFamily.OPENING_BREAKOUT,
+        symbol=candidate.symbol,
+        observed_at=candidate.as_of,
+        status=candidate.state.value,
+        score=(
+            candidate.scores.overall
+            if candidate.scores is not None
+            else None
+        ),
+        reasons=candidate.reasons,
+        evidence={
+            "gates": [
+                gate.model_dump(mode="json")
+                for gate in candidate.gates
+            ],
+            "metrics": candidate.metrics,
+            "opening_range": (
+                candidate.opening_range.model_dump(mode="json")
+                if candidate.opening_range is not None
+                else None
+            ),
         },
         payload=candidate.model_dump(mode="json"),
     )
