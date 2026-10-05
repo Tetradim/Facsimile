@@ -65,6 +65,7 @@ export function WatchlistsPage() {
   const [maxPrice, setMaxPrice] = useState("2.50");
   const [sector, setSector] = useState("Medical");
   const [loadingId, setLoadingId] = useState<string | null>(null);
+  const [autoRefresh, setAutoRefresh] = useState(false);
   const [error, setError] = useState("");
 
   async function load() {
@@ -80,6 +81,14 @@ export function WatchlistsPage() {
   useEffect(() => {
     void load();
   }, []);
+
+  useEffect(() => {
+    if (!autoRefresh || items.length === 0) return;
+    const timer = window.setInterval(() => {
+      void Promise.all(items.map((item) => refresh(item.id)));
+    }, 15 * 60 * 1000);
+    return () => window.clearInterval(timer);
+  }, [autoRefresh, items.map((item) => item.id).join("|")]);
 
   async function create() {
     setError("");
@@ -169,10 +178,20 @@ export function WatchlistsPage() {
             new matches, state changes, tier changes, and dropped setups.
           </p>
         </div>
-        <button className="button button--ghost" onClick={enableNotifications}>
-          <Bell size={16} />
-          Enable desktop alerts
-        </button>
+        <div className="watchlist-heading-actions">
+          <label className="news-toggle">
+            <input
+              type="checkbox"
+              checked={autoRefresh}
+              onChange={(event) => setAutoRefresh(event.target.checked)}
+            />
+            Auto refresh every 15 min while open
+          </label>
+          <button className="button button--ghost" onClick={enableNotifications}>
+            <Bell size={16} />
+            Enable desktop alerts
+          </button>
+        </div>
       </div>
 
       <section className="panel watchlist-create">
