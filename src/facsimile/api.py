@@ -8,7 +8,12 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
 
 from .breakout import WeeklyBreakoutEngine
-from .contracts import ScanEnvelope, weekly_breakout_envelope
+from .opening_breakout import (
+    OpeningBreakoutCandidate,
+    OpeningBreakoutConfig,
+    OpeningBreakoutEngine,
+)
+from .contracts import ScanEnvelope, opening_breakout_envelope, weekly_breakout_envelope
 from .live_data import (
     LiveChartResponse,
     LiveNewsItem,
@@ -124,6 +129,14 @@ class BatchWeeklyScanResponse(BaseModel):
 class StrategyEvaluateRequest(BaseModel):
     strategy: StrategyDefinition
     facts: dict[str, object]
+
+
+class OpeningBreakoutRequest(BaseModel):
+    symbol: str = Field(min_length=1, max_length=32)
+    intraday_bars: list[OHLCVBar]
+    prior_session_bars: list[OHLCVBar] = Field(default_factory=list)
+    prior_close: float | None = Field(default=None, gt=0)
+    config: OpeningBreakoutConfig | None = None
 
 
 def _universe_rejection(
@@ -428,6 +441,32 @@ def value_scan_universe(
     """Operator-friendly alias for price/taxonomy universe filtering."""
 
     return _filter_market_universe(request)
+
+
+@app.post(
+    "/v1/scan/opening-breakout",
+    response_model=OpeningBreakoutCandidate,
+)
+def scan_opening_breakout(
+    request: OpeningBreakoutRequest,
+) -> OpeningBreakoutCandidate:
+    return OpeningBreakoutEngine(request.config).evaluate(
+        request.symbol,
+        request.intraday_bars,
+        request.prior_session_bars,
+        request.prior_close,
+    )
+
+
+@app.post(
+    "/v1/scan/opening-breakout/envelope",
+    response_model=ScanEnvelope,
+)
+def scan_opening_breakout_envelope(
+    request: OpeningBreakoutRequest,
+) -> ScanEnvelope:
+    candidate = scan_opening_breakout(request)
+    return opening_breakout_envelope(candidate)
 
 
 @app.post(
