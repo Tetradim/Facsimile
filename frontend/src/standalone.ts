@@ -799,6 +799,64 @@ function currentWeekMayBeIncomplete(): boolean {
   return !["Sat", "Sun"].includes(weekday);
 }
 
+export async function yahooIntradayBars(
+  symbol: string,
+  range = "5d",
+  interval = "5m",
+): Promise<OHLCVBar[]> {
+  const url =
+    YAHOO_ROOT +
+    "/v8/finance/chart/" +
+    encodeURIComponent(symbol) +
+    "?range=" +
+    encodeURIComponent(range) +
+    "&interval=" +
+    encodeURIComponent(interval) +
+    "&includePrePost=false&events=history";
+
+  const payload = await nativeJson<{
+    chart?: {
+      result?: Array<{
+        timestamp?: number[];
+        indicators?: {
+          quote?: Array<{
+            open?: Array<number | null>;
+            high?: Array<number | null>;
+            low?: Array<number | null>;
+            close?: Array<number | null>;
+            volume?: Array<number | null>;
+          }>;
+        };
+      }>;
+    };
+  }>("GET", url);
+
+  const result = payload.chart?.result?.[0];
+  const quote = result?.indicators?.quote?.[0];
+  const timestamps = result?.timestamp ?? [];
+  if (!quote || !timestamps.length) return [];
+
+  const bars: OHLCVBar[] = [];
+  timestamps.forEach((timestamp, index) => {
+    const open = safeNumber(quote.open?.[index]);
+    const high = safeNumber(quote.high?.[index]);
+    const low = safeNumber(quote.low?.[index]);
+    const close = safeNumber(quote.close?.[index]);
+    const volume = safeNumber(quote.volume?.[index]);
+    if ([open, high, low, close, volume].some((value) => value === null)) return;
+    if (open! <= 0 || high! <= 0 || low! <= 0 || close! <= 0) return;
+    bars.push({
+      timestamp: new Date(timestamp * 1000).toISOString(),
+      open: open!,
+      high: high!,
+      low: low!,
+      close: close!,
+      volume: Math.max(0, volume!),
+    });
+  });
+  return bars;
+}
+
 export async function yahooWeeklyBars(
   symbol: string,
   range = "2y",
