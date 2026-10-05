@@ -1964,3 +1964,30 @@ button {
     gap: 4px;
   }
 }
+
+
+/* Opening breakout */
+.gate-check--fail {
+  background: rgba(239, 68, 68, 0.12);
+  color: #f59a98;
+  border-color: rgba(239, 68, 68, 0.25);
+}
+
+.chart-search-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+@media (max-width: 900px) {
+  .chart-search-actions {
+    width: 100%;
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .chart-search-actions .symbol-search,
+  .chart-search-actions .button {
+    width: 100%;
+  }
+}
