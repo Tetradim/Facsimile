@@ -1861,3 +1861,18 @@ button {
     gap: 4px;
   }
 }
+
+
+.watchlist-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+@media (max-width: 900px) {
+  .watchlist-heading-actions {
+    width: 100%;
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
