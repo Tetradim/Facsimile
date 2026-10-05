@@ -31,7 +31,7 @@ type SqueezeCandidate = {
   scores: {
     pressure: number;
     borrow: number;
-    float: number;
+    float_score: number;
     trigger: number;
     liquidity: number;
     overall: number;
@@ -307,7 +307,7 @@ export function ShortSqueezePage() {
                   ["Overall", scores!.overall],
                   ["Pressure", scores!.pressure],
                   ["Borrow", scores!.borrow],
-                  ["Float", scores!.float],
+                  ["Float", scores!.float_score],
                   ["Trigger", scores!.trigger],
                   ["Liquidity", scores!.liquidity],
                 ].map(([label, raw]) => {
