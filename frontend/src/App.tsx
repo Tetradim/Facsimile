@@ -3,6 +3,7 @@ import { BacktestPage } from "./BacktestPage";
 import { OpeningBreakoutPage } from "./OpeningBreakoutPage";
 import { PositionsPage } from "./PositionsPage";
 import { SimulationPage } from "./SimulationPage";
+import { ShortSqueezePage } from "./ShortSqueezePage";
 import { WatchlistsPage } from "./WatchlistsPage";
 import { WorkbenchChartsPage } from "./WorkbenchChartsPage";
 import {
@@ -50,6 +51,7 @@ type Page =
   | "value"
   | "breakout"
   | "opening"
+  | "squeeze"
   | "builder"
   | "watchlists"
   | "positions"
@@ -210,6 +212,7 @@ const navItems = [
   { id: "value" as Page, label: "Value Scanner", icon: CircleDollarSign },
   { id: "breakout" as Page, label: "Weekly Breakout", icon: TrendingUp },
   { id: "opening" as Page, label: "Opening Breakout", icon: Zap },
+  { id: "squeeze" as Page, label: "Short Squeeze", icon: Target },
   { id: "builder" as Page, label: "Scanner Builder", icon: SlidersHorizontal },
   { id: "watchlists" as Page, label: "Watchlists", icon: Bell },
   { id: "positions" as Page, label: "Positions", icon: Target },
@@ -1743,6 +1746,7 @@ export default function App() {
           {page === "value" ? <ValueScanner /> : null}
           {page === "breakout" ? <BreakoutPage /> : null}
           {page === "opening" ? <OpeningBreakoutPage /> : null}
+          {page === "squeeze" ? <ShortSqueezePage /> : null}
           {page === "builder" ? <BuilderPage /> : null}
           {page === "watchlists" ? <WatchlistsPage /> : null}
           {page === "positions" ? <PositionsPage /> : null}
