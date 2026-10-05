@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { BacktestPage } from "./BacktestPage";
+import { OpeningBreakoutPage } from "./OpeningBreakoutPage";
 import { PositionsPage } from "./PositionsPage";
 import { SimulationPage } from "./SimulationPage";
 import { WatchlistsPage } from "./WatchlistsPage";
@@ -48,6 +49,7 @@ type Page =
   | "command"
   | "value"
   | "breakout"
+  | "opening"
   | "builder"
   | "watchlists"
   | "positions"
@@ -207,6 +209,7 @@ const navItems = [
   { id: "command" as Page, label: "Command Center", icon: LayoutDashboard },
   { id: "value" as Page, label: "Value Scanner", icon: CircleDollarSign },
   { id: "breakout" as Page, label: "Weekly Breakout", icon: TrendingUp },
+  { id: "opening" as Page, label: "Opening Breakout", icon: Zap },
   { id: "builder" as Page, label: "Scanner Builder", icon: SlidersHorizontal },
   { id: "watchlists" as Page, label: "Watchlists", icon: Bell },
   { id: "positions" as Page, label: "Positions", icon: Target },
@@ -1739,6 +1742,7 @@ export default function App() {
           {page === "command" ? <CommandCenter onNavigate={setPage} /> : null}
           {page === "value" ? <ValueScanner /> : null}
           {page === "breakout" ? <BreakoutPage /> : null}
+          {page === "opening" ? <OpeningBreakoutPage /> : null}
           {page === "builder" ? <BuilderPage /> : null}
           {page === "watchlists" ? <WatchlistsPage /> : null}
           {page === "positions" ? <PositionsPage /> : null}
