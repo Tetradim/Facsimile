@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "facsimile-breakout"
 version = "0.2.0"
-description = "Clean-room market scanner workstation designed for later Sentinel Edge integration."
+description = "Standalone multi-strategy market-scanning and research workstation with optional Sentinel Edge integration."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
