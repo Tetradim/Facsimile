@@ -50,7 +50,7 @@ class ShortSqueezeSnapshot(BaseModel):
 class ShortSqueezeScore(BaseModel):
     pressure: float = Field(ge=0, le=100)
     borrow: float = Field(ge=0, le=100)
-    float: float = Field(ge=0, le=100)
+    float_score: float = Field(ge=0, le=100)
     trigger: float = Field(ge=0, le=100)
     liquidity: float = Field(ge=0, le=100)
     overall: float = Field(ge=0, le=100)
@@ -304,7 +304,7 @@ class ShortSqueezeEngine:
             scores=ShortSqueezeScore(
                 pressure=round(pressure_score, 1),
                 borrow=round(borrow_score, 1),
-                float=round(float_score, 1),
+                float_score=round(float_score, 1),
                 trigger=round(trigger_score, 1),
                 liquidity=round(liquidity_score, 1),
                 overall=round(overall, 1),
