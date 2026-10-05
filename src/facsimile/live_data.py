@@ -6,6 +6,7 @@ import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import httpx
 import yfinance as yf
@@ -15,6 +16,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from .breakout import WeeklyBreakoutEngine
+from .opening_breakout import (
+    OpeningBreakoutCandidate,
+    OpeningBreakoutConfig,
+    OpeningBreakoutEngine,
+)
 from .catalysts import (
     CatalystEvidence,
     StructuredCatalystService,
@@ -100,6 +106,17 @@ class LiveChartResponse(BaseModel):
     bars: list[OHLCVBar]
     candidate: BreakoutCandidate
     source: str
+
+
+class LiveOpeningBreakoutResponse(BaseModel):
+    symbol: str
+    profile: LiveProfile
+    session_date: str
+    bars: list[OHLCVBar]
+    prior_session_bars: list[OHLCVBar]
+    candidate: OpeningBreakoutCandidate
+    source: str
+    warnings: list[str] = Field(default_factory=list)
 
 
 MEDICAL_SECTORS = ("Healthcare",)
@@ -352,6 +369,45 @@ class YahooProvider:
                 )
             )
         return bars
+
+    def intraday_bars(
+        self,
+        symbol: str,
+        period: str = "5d",
+        interval: str = "5m",
+    ) -> list[OHLCVBar]:
+        frame = yf.Ticker(symbol).history(
+            period=period,
+            interval=interval,
+            auto_adjust=False,
+            actions=False,
+            prepost=False,
+            repair=True,
+            timeout=15,
+        )
+        bars: list[OHLCVBar] = []
+        for index, row in frame.iterrows():
+            open_ = _as_float(row.get("Open"))
+            high = _as_float(row.get("High"))
+            low = _as_float(row.get("Low"))
+            close = _as_float(row.get("Close"))
+            volume = _as_float(row.get("Volume"))
+            if None in (open_, high, low, close) or volume is None:
+                continue
+            timestamp = index.to_pydatetime()
+            if timestamp.tzinfo is None:
+                timestamp = timestamp.replace(tzinfo=timezone.utc)
+            bars.append(
+                OHLCVBar(
+                    timestamp=timestamp,
+                    open=open_,
+                    high=high,
+                    low=low,
+                    close=close,
+                    volume=max(0.0, volume),
+                )
+            )
+        return sorted(bars, key=lambda bar: bar.timestamp)
 
     def news(self, symbol: str, count: int = 12) -> list[LiveNewsItem]:
         raw_items = yf.Ticker(symbol).get_news(count=count, tab="all") or []
@@ -1193,6 +1249,75 @@ class LiveDataService:
                 detail=f"Set {self.eodhd.env_key} to enable.",
             ),
         ]
+
+    def live_opening_breakout(
+        self,
+        symbol: str,
+        config: OpeningBreakoutConfig | None = None,
+    ) -> LiveOpeningBreakoutResponse:
+        symbol = symbol.strip().upper()
+        bars = self.yahoo.intraday_bars(
+            symbol,
+            period="5d",
+            interval="5m",
+        )
+        if not bars:
+            raise RuntimeError(
+                f"No 5-minute intraday history returned for {symbol}"
+            )
+
+        eastern = ZoneInfo("America/New_York")
+        by_date: dict[str, list[OHLCVBar]] = {}
+        for bar in bars:
+            session_date = bar.timestamp.astimezone(eastern).date().isoformat()
+            by_date.setdefault(session_date, []).append(bar)
+
+        session_dates = sorted(by_date)
+        if not session_dates:
+            raise RuntimeError(f"No regular-session bars returned for {symbol}")
+
+        current_date = session_dates[-1]
+        current_bars = by_date[current_date]
+        prior_bars = (
+            by_date[session_dates[-2]]
+            if len(session_dates) >= 2
+            else []
+        )
+        prior_close = prior_bars[-1].close if prior_bars else None
+
+        candidate = OpeningBreakoutEngine(config).evaluate(
+            symbol,
+            current_bars,
+            prior_bars,
+            prior_close,
+        )
+        try:
+            profile = self.profile_for_symbol(symbol)
+        except Exception:
+            profile = LiveProfile(
+                symbol=symbol,
+                company=symbol,
+                price=current_bars[-1].close,
+                source="yahoo_intraday",
+            )
+
+        warnings: list[str] = []
+        if len(session_dates) < 2:
+            warnings.append(
+                "Prior-session intraday history was unavailable; "
+                "relative-volume confirmation may remain unresolved."
+            )
+
+        return LiveOpeningBreakoutResponse(
+            symbol=symbol,
+            profile=profile,
+            session_date=current_date,
+            bars=current_bars,
+            prior_session_bars=prior_bars,
+            candidate=candidate,
+            source="Yahoo Finance 5m",
+            warnings=warnings,
+        )
 
     def _weekly_bars(self, symbol: str) -> tuple[list[OHLCVBar], str]:
         errors: list[str] = []
