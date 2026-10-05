@@ -119,6 +119,18 @@ class LiveOpeningBreakoutResponse(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class LiveOpeningBatchRequest(BaseModel):
+    symbols: list[str] = Field(min_length=1, max_length=12)
+    config: OpeningBreakoutConfig | None = None
+    include_rejected: bool = False
+
+
+class LiveOpeningBatchResponse(BaseModel):
+    generated_at: datetime
+    rows: list[LiveOpeningBreakoutResponse]
+    errors: list[str] = Field(default_factory=list)
+
+
 MEDICAL_SECTORS = ("Healthcare",)
 CATALYST_TERMS = {
     "fda": 30,
@@ -1317,6 +1329,74 @@ class LiveDataService:
             candidate=candidate,
             source="Yahoo Finance 5m",
             warnings=warnings,
+        )
+
+    def scan_opening_breakouts(
+        self,
+        request: LiveOpeningBatchRequest,
+    ) -> LiveOpeningBatchResponse:
+        symbols = []
+        seen: set[str] = set()
+        for raw in request.symbols:
+            symbol = raw.strip().upper()
+            if symbol and symbol not in seen:
+                seen.add(symbol)
+                symbols.append(symbol)
+
+        rows: list[LiveOpeningBreakoutResponse] = []
+        errors: list[str] = []
+        workers = min(4, max(1, len(symbols)))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {
+                pool.submit(
+                    self.live_opening_breakout,
+                    symbol,
+                    request.config,
+                ): symbol
+                for symbol in symbols
+            }
+            for future in as_completed(futures):
+                symbol = futures[future]
+                try:
+                    row = future.result()
+                except Exception as exc:
+                    errors.append(f"{symbol}: {exc}")
+                    continue
+                if (
+                    request.include_rejected
+                    or row.candidate.state.value != "rejected"
+                ):
+                    rows.append(row)
+
+        def rank(
+            row: LiveOpeningBreakoutResponse,
+        ) -> tuple[float, float, float, float]:
+            state_weight = (
+                2.0
+                if row.candidate.state.value == "confirmed"
+                else 1.0
+                if row.candidate.state.value == "developing"
+                else 0.0
+            )
+            overall = (
+                row.candidate.scores.overall
+                if row.candidate.scores is not None
+                else 0.0
+            )
+            relative_volume = row.candidate.relative_volume or 0.0
+            stop_risk = row.candidate.stop_risk_pct or 1.0
+            return (
+                state_weight,
+                overall,
+                relative_volume,
+                -stop_risk,
+            )
+
+        rows.sort(key=rank, reverse=True)
+        return LiveOpeningBatchResponse(
+            generated_at=datetime.now(timezone.utc),
+            rows=rows,
+            errors=errors,
         )
 
     def _weekly_bars(self, symbol: str) -> tuple[list[OHLCVBar], str]:
