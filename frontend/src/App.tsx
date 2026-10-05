@@ -1721,8 +1721,8 @@ export default function App() {
             </button>
             <div className="market-state">
               <span className="live-dot" />
-              <strong>MARKET OPEN</strong>
-              <span>Data workstation demo</span>
+              <strong>LIVE DATA</strong>
+              <span>Facsimile workstation</span>
             </div>
           </div>
           <div className="topbar-actions">
