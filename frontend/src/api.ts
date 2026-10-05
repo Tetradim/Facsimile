@@ -16,6 +16,11 @@ import {
   type StandaloneBacktestRequest,
 } from "./standaloneResearch";
 import {
+  standaloneOpeningBatch,
+  standaloneOpeningBreakout,
+  type StandaloneOpeningBatchRequest,
+} from "./standaloneOpening";
+import {
   createStandalonePosition,
   deleteStandalonePosition,
   listStandalonePositions,
@@ -275,6 +280,20 @@ async function standaloneFetch(
         };
     const result = await runStandaloneBacktest(request);
     return jsonResponse(result);
+  }
+
+  if (pathname.startsWith("/v1/live/opening-breakout/") && pathname !== "/v1/live/opening-breakout/batch") {
+    const symbol = decodeURIComponent(
+      pathname.slice("/v1/live/opening-breakout/".length),
+    );
+    return jsonResponse(await standaloneOpeningBreakout(symbol));
+  }
+
+  if (pathname === "/v1/live/opening-breakout/batch" && init?.method === "POST") {
+    const request: StandaloneOpeningBatchRequest = init?.body
+      ? JSON.parse(String(init.body))
+      : { symbols: [] };
+    return jsonResponse(await standaloneOpeningBatch(request));
   }
 
   if (pathname === "/v1/simulation/monte-carlo" && init?.method === "POST") {
