@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
 import { BacktestPage } from "./BacktestPage";
+import { PositionsPage } from "./PositionsPage";
+import { SimulationPage } from "./SimulationPage";
 import { WatchlistsPage } from "./WatchlistsPage";
 import { WorkbenchChartsPage } from "./WorkbenchChartsPage";
 import {
@@ -48,7 +50,9 @@ type Page =
   | "breakout"
   | "builder"
   | "watchlists"
+  | "positions"
   | "backtest"
+  | "simulation"
   | "charts";
 
 type Candidate = {
@@ -205,7 +209,9 @@ const navItems = [
   { id: "breakout" as Page, label: "Weekly Breakout", icon: TrendingUp },
   { id: "builder" as Page, label: "Scanner Builder", icon: SlidersHorizontal },
   { id: "watchlists" as Page, label: "Watchlists", icon: Bell },
+  { id: "positions" as Page, label: "Positions", icon: Target },
   { id: "backtest" as Page, label: "Backtest Lab", icon: BarChart3 },
+  { id: "simulation" as Page, label: "Simulation Lab", icon: Gauge },
   { id: "charts" as Page, label: "Charts", icon: LineChartIcon },
 ];
 
@@ -357,7 +363,14 @@ function CommandCenter({ onNavigate }: { onNavigate: (page: Page) => void }) {
         <Panel
           title="Strategy Curve"
           subtitle="Illustrative scanner equity curve versus benchmark"
-          action={<button className="text-button">Simulation Lab</button>}
+          action={
+            <button
+              className="text-button"
+              onClick={() => onNavigate("simulation")}
+            >
+              Simulation Lab
+            </button>
+          }
           className="panel--wide"
         >
           <div className="chart chart--large">
@@ -1728,7 +1741,9 @@ export default function App() {
           {page === "breakout" ? <BreakoutPage /> : null}
           {page === "builder" ? <BuilderPage /> : null}
           {page === "watchlists" ? <WatchlistsPage /> : null}
+          {page === "positions" ? <PositionsPage /> : null}
           {page === "backtest" ? <BacktestPage /> : null}
+          {page === "simulation" ? <SimulationPage /> : null}
           {page === "charts" ? <WorkbenchChartsPage /> : null}
         </main>
       </div>
