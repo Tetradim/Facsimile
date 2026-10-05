@@ -2271,3 +2271,48 @@ button {
     gap: 4px;
   }
 }
+
+
+/* Opening breakout */
+.gate-check--fail {
+  background: rgba(239, 68, 68, 0.12);
+  color: #f59a98;
+  border-color: rgba(239, 68, 68, 0.25);
+}
+
+.opening-focus-panel {
+  margin-bottom: 14px;
+}
+
+.opening-focus-controls {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.opening-focus-results {
+  margin-top: 12px;
+}
+
+.opening-focus-row {
+  cursor: pointer;
+}
+
+.opening-focus-row:hover {
+  background: rgba(79, 140, 255, 0.06);
+}
+
+.lwc-chart {
+  min-height: 320px;
+}
+
+@media (max-width: 900px) {
+  .opening-focus-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .opening-focus-controls .button {
+    width: 100%;
+  }
+}
